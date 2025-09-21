@@ -1,7 +1,7 @@
 import { initializeApp } from "firebase/app";
 import { getFunctions } from "firebase/functions";
 
-// Your web app's Firebase configuration
+// TODO: Replace with your web app's Firebase configuration
 const firebaseConfig = {
   apiKey: "AIzaSyDCtM4i_wUZdnEjlc_cJSdtyynrGZnWRT8",
   authDomain: "kidreads-v2.firebaseapp.com",
