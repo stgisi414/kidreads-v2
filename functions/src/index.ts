@@ -9,13 +9,13 @@ const ai = new GoogleGenAI({apiKey: process.env.API_KEY || ""});
 // Set global options for Firebase Functions
 setGlobalOptions({maxInstances: 10});
 
-const STORY_SYSTEM_INSTRUCTION = `You are a creative storyteller for children aged 3-5.
-- Create a very short, simple, and positive story with 2 to 4 sentences.
-- The story must be easy to read and understand for a young child.
-- STRICTLY FORBIDDEN THEMES: violence, death, scary monsters, sadness, arguments, complex topics, hate speech, sexual content, or any inappropriate themes for toddlers.
-- Focus on themes of friendship, animals, nature, and joy.
+const STORY_SYSTEM_INSTRUCTION = `You are a creative storyteller for children.
+- Create a short, simple, and positive story (2-4 sentences).
+- The story must be easy for a young child to read and understand.
+- FORBIDDEN THEMES: violence, death, scary monsters, sadness, complex topics.
+- Focus on friendship, animals, nature, and joy.
 - Do not use complex words or sentence structures.
-- Do not add any titles or headings. Respond only with the story text.`;
+- Respond only with the story text.`;
 
 export const generateStoryAndIllustration = onCall(async (request) => {
   const {topic} = request.data;
@@ -25,7 +25,7 @@ export const generateStoryAndIllustration = onCall(async (request) => {
 
   try {
     const storyResponse = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-1.5-flash",
       contents: `A story about: ${topic}`,
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
       // @ts-ignore
@@ -63,7 +63,7 @@ export const generateStoryAndIllustration = onCall(async (request) => {
     }
 
     const imageResponse = await ai.models.generateImages({
-      model: "imagen-4.0-fast-generate-001",
+      model: "imagen-1.0-generate-001",
       prompt: `A colorful, simple, and friendly cartoon illustration for a
        child's story. The style should be like a children's book illustration, 
        with soft edges and a happy mood. The illustration should depict: 
@@ -104,7 +104,7 @@ export const getPhonemesForWord = onCall(async (request) => {
   try {
     const cleanWord = word.replace(/[.,!?]/g, "");
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
+      model: "gemini-1.5-flash",
       contents: `Break down the word "${cleanWord}" into its individual
        phonemes, separated by hyphens. For example, for "cat", respond 
        with "c-a-t". For "happy", respond "h-a-ppy". Provide only the 
