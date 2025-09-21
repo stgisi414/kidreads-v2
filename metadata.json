@@ -1,0 +1,7 @@
+{
+  "name": "KidReads",
+  "description": "An interactive read-along web app for children, powered by AI story generation, illustrations, and speech recognition to make learning to read fun.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
