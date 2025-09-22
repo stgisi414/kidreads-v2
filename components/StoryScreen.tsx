@@ -110,9 +110,9 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome }) => {
       setFeedback('incorrect'); // Show "Let's try again!"
       setTimeout(() => {
         setFeedback(null);
-        if (isReading) {
-            readAloud(); // Re-read the phrase to prompt the user again
-        }
+        // if (isReading) {
+        //    readAloud(); // <--- DELETE OR COMMENT OUT THIS LINE
+        // }
       }, 2000);
     } else if (speechError === 'not-allowed') {
       setPermissionError("I can't hear you! Please allow microphone access in your browser settings to continue.");

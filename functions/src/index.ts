@@ -1,130 +1,164 @@
-import {setGlobalOptions} from "firebase-functions/v2";
-import {onCall} from "firebase-functions/v2/https";
+// functions/src/index.ts
+
+import { onRequest } from "firebase-functions/v2/https";
 import * as logger from "firebase-functions/logger";
-import {GoogleGenAI} from "@google/genai";
+import cors from "cors";
+import { Response } from "express";
 
-// Initialize the Gemini AI client
-const ai = new GoogleGenAI({apiKey: process.env.API_KEY || ""});
+// Define the list of allowed websites
+const allowedOrigins = [
+  /kidreads-v2\.web\.app$/,
+  /localhost:\d+$/,
+  /kidreads\.app$/,
+];
 
-// Set global options for Firebase Functions
-setGlobalOptions({maxInstances: 10});
+const corsHandler = cors({ origin: allowedOrigins });
 
-const STORY_SYSTEM_INSTRUCTION = `You are a creative storyteller for children.
-- Create a short, simple, and positive story (2-4 sentences).
-- The story must be easy for a young child to read and understand.
-- FORBIDDEN THEMES: violence, death, scary monsters, sadness, complex topics.
-- Focus on friendship, animals, nature, and joy.
-- Do not use complex words or sentence structures.
-- Respond only with the story text.`;
+const STORY_SYSTEM_INSTRUCTION = `You are a creative storyteller for children. Create a short, simple, and positive story (2-4 sentences). The story must be easy for a young child to read and understand. FORBIDDEN THEMES: violence, death, scary monsters, sadness, complex topics. Focus on friendship, animals, nature, and joy. Do not use complex words or sentence structures. Respond only with the story text.`;
 
-export const generateStoryAndIllustration = onCall(async (request) => {
-  const {topic} = request.data;
-  if (!topic) {
-    throw new Error("Topic is required.");
-  }
+// In functions/src/index.ts
 
-  try {
-    const storyResponse = await ai.models.generateContent({
-      model: "gemini-1.5-flash",
-      contents: `A story about: ${topic}`,
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore
-      config: {
-        systemInstruction: STORY_SYSTEM_INSTRUCTION,
-        temperature: 0.8,
-        maxOutputTokens: 300,
-      },
-    });
-
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore
-    const storyText = storyResponse.text?.trim();
-
-    if (!storyText) {
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore
-      const finishReason = storyResponse.candidates?.[0]?.finishReason;
-      logger.error("Gemini story generation response was empty or blocked.", {
-        finishReason,
-        response: storyResponse,
-      });
-
-      let errorMessage = "Failed to generate story text.";
-      if (finishReason === "SAFETY") {
-        errorMessage += " The topic may have been inappropriate.";
-      } else if (finishReason) {
-        errorMessage += ` Generation stopped for reason: ${finishReason}. 
-        Please try again.`;
-      } else {
-        errorMessage += ` The AI did not return a story. 
-        Please try a different topic.`;
+export const generateStoryAndIllustration = onRequest(
+  { secrets: ["API_KEY"], maxInstances: 10, region: 'us-central1' },
+  (request, response: Response) => {
+    corsHandler(request, response, async () => {
+      const { topic } = request.body;
+      if (!topic) {
+        response.status(400).send({ error: "Topic is required." });
+        return;
       }
-      throw new Error(errorMessage);
-    }
 
-    const imageResponse = await ai.models.generateImages({
-      model: "imagen-1.0-generate-001",
-      prompt: `A colorful, simple, and friendly cartoon illustration for a
-       child's story. The style should be like a children's book illustration, 
-       with soft edges and a happy mood. The illustration should depict: 
-       ${storyText}`,
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore
-      config: {
-        numberOfImages: 1,
-        outputMimeType: "image/jpeg",
-        aspectRatio: "16:9",
-      },
+      const GEMINI_API_KEY = process.env.API_KEY;
+      if (!GEMINI_API_KEY) {
+        logger.error("API_KEY not configured in environment.");
+        response.status(500).send({ error: "Internal Server Error: API key not found." });
+        return;
+      }
+
+      try {
+        const storyModelUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+        const storyApiRequest = {
+          contents: [{ parts: [{ text: `A story about: ${topic}` }] }],
+          system_instruction: { parts: [{ text: STORY_SYSTEM_INSTRUCTION }] },
+          generationConfig: { temperature: 0.8, maxOutputTokens: 1024 }
+        };
+
+        const storyApiResponse = await fetch(storyModelUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(storyApiRequest),
+        });
+
+        if (!storyApiResponse.ok) {
+          const errorText = await storyApiResponse.text();
+          logger.error("Error from Gemini story API:", errorText);
+          throw new Error(`Gemini story API failed with status ${storyApiResponse.status}`);
+        }
+
+        const storyData = await storyApiResponse.json();
+        
+        // **NEW:** Check for safety blocking before proceeding
+        if (storyData.candidates?.[0]?.finishReason === "SAFETY") {
+            logger.warn("Story generation was blocked for safety reasons.", { topic });
+            response.status(400).send({ error: "That topic is not allowed. Please choose a friendlier topic for a children's story." });
+            return;
+        }
+        
+        const storyText = storyData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        if (!storyText) {
+          logger.error("No story text found in Gemini response", storyData);
+          throw new Error("Failed to generate story text from AI.");
+        }
+
+        const imageModelUrl = `https://us-central1-aiplatform.googleapis.com/v1/projects/kidreads-v2/locations/us-central1/publishers/google/models/imagen-4.0-fast-generate-001:predict`;
+        const accessToken = (await (await fetch("http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token", { headers: { "Metadata-Flavor": "Google" }})).json()).access_token;
+        const imageApiRequest = {
+          instances: [{
+            prompt: `A colorful, simple, and friendly cartoon illustration for a child's story. The style should be like a children's book illustration, with soft edges and a happy mood. The illustration should depict: ${storyText}`
+          }],
+          parameters: { sampleCount: 1, aspectRatio: "16:9", mimeType: "image/jpeg" }
+        };
+        
+        const imageApiResponse = await fetch(imageModelUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${accessToken}` },
+            body: JSON.stringify(imageApiRequest),
+        });
+
+        if (!imageApiResponse.ok) {
+            const errorText = await imageApiResponse.text();
+            logger.error("Error from Imagen API:", { status: imageApiResponse.status, text: errorText });
+            throw new Error(`Imagen API failed with status ${imageApiResponse.status}`);
+        }
+
+        const imageData = await imageApiResponse.json();
+        const base64ImageBytes = imageData.predictions?.[0]?.bytesBase64Encoded;
+        if (!base64ImageBytes) {
+           logger.error("No image data found in Imagen response", imageData);
+           throw new Error("Failed to generate illustration.");
+        }
+        const illustration = `data:image/jpeg;base64,${base64ImageBytes}`;
+        response.status(200).send({ text: storyText, illustration });
+
+      } catch (error) {
+        logger.error("Error in generateStoryAndIllustration:", error);
+        response.status(500).send({ error: "Could not generate story and illustration." });
+      }
     });
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore
-    const base64ImageBytes = imageResponse.generatedImages[0]?.image.imageBytes;
-    if (!base64ImageBytes) {
-      throw new Error("Failed to generate illustration.");
-    }
-
-    const illustration = `data:image/jpeg;base64,${base64ImageBytes}`;
-
-    return {text: storyText, illustration};
-  } catch (error) {
-    logger.error("Error in Gemini service:", error);
-    if (error instanceof Error) {
-      throw error; // Re-throw the original error to preserve its message
-    }
-    throw new Error("Could not generate story and illustration from AI.");
   }
-});
+);
 
-export const getPhonemesForWord = onCall(async (request) => {
-  const {word} = request.data;
-  if (!word) {
-    throw new Error("Word is required.");
-  }
-
-  try {
-    const cleanWord = word.replace(/[.,!?]/g, "");
-    const response = await ai.models.generateContent({
-      model: "gemini-1.5-flash",
-      contents: `Break down the word "${cleanWord}" into its individual
-       phonemes, separated by hyphens. For example, for "cat", respond 
-       with "c-a-t". For "happy", respond "h-a-ppy". Provide only the 
-       hyphen-separated phonemes and nothing else.`,
-      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-      // @ts-ignore
-      config: {
-        temperature: 0,
-        maxOutputTokens: 50,
-      },
-    });
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore
-    const phonemeText = response.text?.trim();
-    if (!phonemeText) {
-      throw new Error("Could not get phonemes for the word.");
+// ... (getPhonemesForWord function remains the same as your last working version) ...
+export const getPhonemesForWord = onRequest(
+    { secrets: ["API_KEY"], maxInstances: 10, region: 'us-central1' },
+    (request, response: Response) => {
+      corsHandler(request, response, async () => {
+        const { word } = request.body;
+        if (!word) {
+          response.status(400).send({ error: "Word is required." });
+          return;
+        }
+        
+        const GEMINI_API_KEY = process.env.API_KEY;
+        if (!GEMINI_API_KEY) {
+          logger.error("API_KEY not configured in environment.");
+          response.status(500).send({ error: "Internal Server Error: API key not found." });
+          return;
+        }
+  
+        try {
+          const cleanWord = word.replace(/[.,!?]/g, "");
+          const modelUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+          const apiRequest = {
+              contents: [{ parts: [{ text: `Break down the word "${cleanWord}" into its individual phonemes, separated by hyphens. For example, for "cat", respond with "c-a-t". For "happy", respond "h-a-ppy". Provide only the hyphen-separated phonemes and nothing else.`}]}],
+              generationConfig: { temperature: 0, maxOutputTokens: 1024 }
+          };
+  
+          const apiResponse = await fetch(modelUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(apiRequest),
+          });
+  
+          if (!apiResponse.ok) {
+              const errorText = await apiResponse.text();
+              logger.error("Error from Gemini phoneme API:", errorText);
+              throw new Error(`Gemini phoneme API failed with status ${apiResponse.status}`);
+          }
+          
+          const data = await apiResponse.json();
+          const phonemeText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+  
+          if (!phonemeText) {
+            throw new Error("Could not get phonemes for the word.");
+          }
+          const phonemes = phonemeText.split("-").filter((p: string) => p);
+          response.status(200).send(phonemes);
+          
+        } catch (error) {
+          logger.error("Error in getPhonemesForWord:", error);
+          response.status(500).send({ error: "Could not get phonemes for the word." });
+        }
+      });
     }
-    return phonemeText.split("-").filter((p: string) => p);
-  } catch (error) {
-    logger.error("Error getting phonemes:", error);
-    throw new Error("Could not get phonemes for the word.");
-  }
-});
+  );
