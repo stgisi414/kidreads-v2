@@ -7,22 +7,23 @@ const getFunctionUrl = (name: string) => {
   return `https://${region}-${projectId}.cloudfunctions.net/${name}`;
 };
 
-async function callFirebaseFunction(functionName: string, data: any) {
+async function callFirebaseFunction(functionName: string, bodyData: any) {
   const url = getFunctionUrl(functionName);
   const response = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(data), // We send the data directly
+    body: JSON.stringify(bodyData),
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || "Failed to call function");
+    const errorText = await response.text();
+    console.error(`Error from ${functionName}:`, errorText);
+    throw new Error(`Failed to call function ${functionName}`);
   }
 
-  return response.json(); // The response is the data itself
+  return response.json();
 }
 
 export const generateStoryAndIllustration = (topic: string) => {
@@ -31,4 +32,13 @@ export const generateStoryAndIllustration = (topic: string) => {
 
 export const getPhonemesForWord = (word: string) => {
   return callFirebaseFunction("getPhonemesForWord", { word });
+};
+
+// Add new functions
+export const getTextToSpeechAudio = (text: string): Promise<{ audioContent: string }> => {
+    return callFirebaseFunction("geminiTTS", { text });
+};
+
+export const transcribeAudio = (audio: string): Promise<{ transcription?: string }> => {
+    return callFirebaseFunction("transcribeAudio", { audio });
 };

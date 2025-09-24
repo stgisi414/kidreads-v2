@@ -2,6 +2,7 @@ import React, { useState, useCallback } from 'react';
 import type { Story } from './types';
 import HomeScreen from './components/HomeScreen';
 import StoryScreen from './components/StoryScreen';
+import Header from './components/Header'; 
 import { generateStoryAndIllustration } from './services/geminiService';
 
 type Screen = 'home' | 'story';
@@ -47,8 +48,9 @@ const App: React.FC = () => {
   }, []);
 
   return (
-    <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 bg-sky-50 text-slate-800">
-      <main className="w-full max-w-4xl mx-auto">
+    <div className="min-h-screen w-full flex flex-col items-center p-4 bg-sky-50 text-slate-800">
+      {screen === 'story' && <Header />}
+      <main className="w-full max-w-4xl mx-auto flex-grow flex items-center justify-center">
         {screen === 'home' && (
           <HomeScreen
             onCreateStory={handleCreateStory}
