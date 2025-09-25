@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react'; // **FIX**: Added useEffect import
 import Spinner from './Spinner';
 import Icon from './Icon';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
@@ -16,19 +16,22 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ onCreateStory, isLoading, loadi
   const [isTranscribing, setIsTranscribing] = useState(false);
   
   const handleMicClick = async () => {
-    if (recorderState === 'recording') {
+    // **FIX**: The logic is now direct. If recording, stop and transcribe. If not, start.
+    if (recorderState.status === 'recording') {
         setIsTranscribing(true);
         const audioBase64 = await stopRecording();
-        try {
-            if (audioBase64) {
+        if (audioBase64) {
+            try {
                 const { transcription } = await transcribeAudio(audioBase64);
                 if (transcription) {
                     onCreateStory(transcription);
                 }
+            } catch (e) {
+                console.error("Transcription failed", e);
+            } finally {
+                setIsTranscribing(false);
             }
-        } catch (e) {
-            console.error("Transcription failed", e);
-        } finally {
+        } else {
             setIsTranscribing(false);
         }
     } else {
@@ -40,7 +43,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ onCreateStory, isLoading, loadi
     return <Spinner message={isTranscribing ? "Thinking about your topic..." : (loadingMessage || "Loading...")} />;
   }
   
-  const isListening = recorderState === 'recording';
+  const isListening = recorderState.status === 'recording';
 
   return (
     <div className="flex flex-col items-center justify-center text-center p-6 rounded-3xl bg-white shadow-lg animate-fade-in">
@@ -70,7 +73,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ onCreateStory, isLoading, loadi
       >
         <Icon name={isListening ? "check" : "microphone"} className="w-20 h-20" />
         {isListening && (
-            <span className="absolute -bottom-8 text-lg font-semibold text-red-600">Listening... Say "I'm done" when finished!</span>
+            <span className="absolute top-full mt-4 text-lg font-semibold text-red-600 w-max">Click the checkmark when you're done!</span>
         )}
       </button>
 

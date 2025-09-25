@@ -1,3 +1,5 @@
+// functions/src/index.ts
+
 import { onRequest, Request as FunctionsRequest } from "firebase-functions/v2/https";
 import { Response as ExpressResponse } from "express";
 import * as logger from "firebase-functions/logger";
@@ -71,7 +73,8 @@ export const generateStoryAndIllustration = onRequest(
         const accessToken = (await (await fetch("http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token", { headers: { "Metadata-Flavor": "Google" } })).json()).access_token;
         const imageApiRequest = {
           instances: [{
-            prompt: `A colorful, simple, and friendly cartoon illustration for a child's story. The style should be like a children's book illustration, with soft edges and a happy mood. The illustration should be textless and not contain any words. The illustration should depict: ${storyText}`,
+            prompt: `A colorful, simple, and friendly cartoon illustration for a child's story. The style should be like a children's book illustration, with soft edges and a happy mood. The illustration should depict: ${storyText}`,
+            negativePrompt: "text, words, letters, writing, captions, headlines, titles, signs, numbers, fonts, don't write anything at all it's just an illustration",
           }],
           parameters: { sampleCount: 1, aspectRatio: "16:9", mimeType: "image/jpeg" },
         };
@@ -226,10 +229,10 @@ export const transcribeAudio = onRequest(
           content: audioBytes,
         };
         const config = {
-          encoding: "WEBM_OPUS" as const, // We will send audio in this format from the frontend
+          encoding: "WEBM_OPUS" as const, 
           sampleRateHertz: 48000,
           languageCode: "en-US",
-          model: "long",
+          model: "latest_long",
         };
         const requestPayload = {
           audio: audio,
@@ -247,4 +250,6 @@ export const transcribeAudio = onRequest(
         response.status(500).send("Error transcribing audio.");
       }
     });
-  });
+  },
+);
+

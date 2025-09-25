@@ -1,16 +1,54 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { getTextToSpeechAudio } from '../services/geminiService';
 
-// Helper to decode base64 and create an AudioBuffer
-const base64ToAudioBuffer = async (base64: string, audioContext: AudioContext): Promise<AudioBuffer> => {
+// Helper function to decode base64 string to ArrayBuffer
+const base64ToArrayBuffer = (base64: string) => {
   const binaryString = window.atob(base64);
   const len = binaryString.length;
   const bytes = new Uint8Array(len);
   for (let i = 0; i < len; i++) {
     bytes[i] = binaryString.charCodeAt(i);
   }
-  return audioContext.decodeAudioData(bytes.buffer);
+  return bytes.buffer;
 };
+
+// Helper function to convert raw PCM audio data to a playable WAV Blob
+// The Gemini TTS model returns signed 16-bit PCM audio data at a 24000 Hz sample rate.
+const pcmToWav = (pcmData: Int16Array, sampleRate: number = 24000) => {
+  const numChannels = 1;
+  const bitsPerSample = 16;
+  const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+  const blockAlign = numChannels * (bitsPerSample / 8);
+  const dataSize = pcmData.length * (bitsPerSample / 8);
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  // RIFF header
+  view.setUint32(0, 0x52494646, false); // "RIFF"
+  view.setUint32(4, 36 + dataSize, true);
+  view.setUint32(8, 0x57415645, false); // "WAVE"
+
+  // fmt sub-chunk
+  view.setUint32(12, 0x666d7420, false); // "fmt "
+  view.setUint32(16, 16, true); // Sub-chunk size
+  view.setUint16(20, 1, true); // Audio format (1 for PCM)
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, byteRate, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, bitsPerSample, true);
+
+  // data sub-chunk
+  view.setUint32(36, 0x64617461, false); // "data"
+  view.setUint32(40, dataSize, true);
+
+  // Write PCM data
+  const pcm16 = new Int16Array(buffer, 44);
+  pcm16.set(pcmData);
+
+  return new Blob([view], { type: 'audio/wav' });
+};
+
 
 interface TextToSpeechHook {
   speak: (text: string, onEnd?: () => void) => Promise<void>;
@@ -22,66 +60,80 @@ interface TextToSpeechHook {
 export const useTextToSpeech = (): TextToSpeechHook => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const sourceRef = useRef<AudioBufferSourceNode | null>(null);
-
-  // Initialize AudioContext on first use
-  const getAudioContext = () => {
-    if (!audioContextRef.current) {
-        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-    }
-    return audioContextRef.current;
-  };
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const cancel = useCallback(() => {
-    if (sourceRef.current) {
-      sourceRef.current.stop();
-      sourceRef.current = null;
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+      audioRef.current = null;
     }
     setIsSpeaking(false);
     setIsLoading(false);
   }, []);
 
   const speak = useCallback(async (text: string, onEnd?: () => void) => {
-    if (isSpeaking || isLoading) return;
+    if (isSpeaking || isLoading) {
+      // If already speaking or loading, don't start a new request.
+      return;
+    }
 
     setIsLoading(true);
+    // Cancel any previously playing audio
+    if (audioRef.current) {
+        cancel();
+    }
+
     try {
       const { audioContent } = await getTextToSpeechAudio(text);
-      const audioContext = getAudioContext();
-      // Ensure context is not in a suspended state (common in modern browsers)
-      if (audioContext.state === 'suspended') {
-        await audioContext.resume();
+      if (!audioContent) {
+          throw new Error("No audio content received.");
       }
+      const pcmData = base64ToArrayBuffer(audioContent);
+      const pcm16 = new Int16Array(pcmData);
+      const wavBlob = pcmToWav(pcm16, 24000); // Gemini TTS sample rate is 24000 Hz
+      const audioUrl = URL.createObjectURL(wavBlob);
       
-      const audioBuffer = await base64ToAudioBuffer(audioContent, audioContext);
-      
-      if (sourceRef.current) {
-        sourceRef.current.stop();
-      }
+      const audio = new Audio(audioUrl);
+      audioRef.current = audio;
 
-      const source = audioContext.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(audioContext.destination);
-      source.onended = () => {
+      audio.onplay = () => {
+        setIsSpeaking(true);
+      };
+
+      audio.onended = () => {
         setIsSpeaking(false);
-        sourceRef.current = null;
         if (onEnd) {
           onEnd();
         }
+        URL.revokeObjectURL(audioUrl); // Clean up the object URL
+        audioRef.current = null;
       };
       
-      source.start();
-      sourceRef.current = source;
-      setIsSpeaking(true);
+      audio.onerror = (e) => {
+          console.error("Audio playback error:", e);
+          setIsSpeaking(false);
+          setIsLoading(false);
+          URL.revokeObjectURL(audioUrl);
+          audioRef.current = null;
+      };
+
+      await audio.play();
 
     } catch (error) {
       console.error("Error fetching or playing TTS audio:", error);
-      setIsSpeaking(false); // Ensure state is reset on error
+      setIsSpeaking(false);
     } finally {
       setIsLoading(false);
     }
-  }, [isSpeaking, isLoading]);
+  }, [isSpeaking, isLoading, cancel]);
+
+  // Cleanup effect to cancel speech if the component unmounts
+  useEffect(() => {
+      return () => {
+          cancel();
+      };
+  }, [cancel]);
 
   return { speak, cancel, isSpeaking, isLoading };
 };
