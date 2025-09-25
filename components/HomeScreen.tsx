@@ -3,20 +3,35 @@ import Spinner from './Spinner';
 import Icon from './Icon';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
 import { transcribeAudio } from '../services/geminiService';
+import SavedStoriesModal from './SavedStoriesModal';
+import type { Story } from '../types';
 
 type HomeScreenProps = {
   onCreateStory: (topic: string) => void;
+  onLoadStory: (story: Story) => void;
   isLoading: boolean;
   loadingMessage: string;
   error: string | null;
 };
 
-const HomeScreen: React.FC<HomeScreenProps> = ({ onCreateStory, isLoading, loadingMessage, error }) => {
+const HomeScreen: React.FC<HomeScreenProps> = ({ onCreateStory, onLoadStory, isLoading, loadingMessage, error }) => {
   const { recorderState, startRecording, stopRecording, permissionError } = useAudioRecorder();
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [isStoriesModalVisible, setStoriesModalVisible] = useState(false);
+  const [savedStories, setSavedStories] = useState<Story[]>([]);
+
+  useEffect(() => {
+    const stories = JSON.parse(localStorage.getItem('savedStories') || '[]');
+    setSavedStories(stories);
+  }, []);
+
+  const handleDeleteStory = (storyId: number) => {
+    const updatedStories = savedStories.filter(story => story.id !== storyId);
+    setSavedStories(updatedStories);
+    localStorage.setItem('savedStories', JSON.stringify(updatedStories));
+  };
   
   const handleMicClick = async () => {
-    // **FIX**: The logic is now direct. If recording, stop and transcribe. If not, start.
     if (recorderState.status === 'recording') {
         setIsTranscribing(true);
         const audioBase64 = await stopRecording();
@@ -47,6 +62,14 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ onCreateStory, isLoading, loadi
 
   return (
     <div className="flex flex-col items-center justify-center text-center p-6 rounded-3xl bg-white shadow-lg animate-fade-in">
+      {isStoriesModalVisible && (
+        <SavedStoriesModal
+          savedStories={savedStories}
+          onLoadStory={onLoadStory}
+          onDeleteStory={handleDeleteStory}
+          onClose={() => setStoriesModalVisible(false)}
+        />
+      )}
       <h1 className="text-6xl font-black text-blue-600 mb-2 flex items-center justify-center">
         <video autoPlay loop muted playsInline className="w-20 h-20 mr-4">
           <source src="/kidreads.mp4" type="video/mp4" />
@@ -75,6 +98,10 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ onCreateStory, isLoading, loadi
         {isListening && (
             <span className="absolute top-full mt-4 text-lg font-semibold text-red-600 w-max">Click the checkmark when you're done!</span>
         )}
+      </button>
+
+      <button onClick={() => setStoriesModalVisible(true)} className="mt-8 px-6 py-3 bg-purple-500 text-white rounded-full font-bold text-lg hover:bg-purple-600 transition-transform hover:scale-105 shadow-lg">
+        My Stories
       </button>
 
       {error && (

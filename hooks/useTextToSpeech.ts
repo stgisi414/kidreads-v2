@@ -51,7 +51,7 @@ const pcmToWav = (pcmData: Int16Array, sampleRate: number = 24000) => {
 
 
 interface TextToSpeechHook {
-  speak: (text: string, onEnd?: () => void) => Promise<void>;
+  speak: (text: string, onEnd?: () => void, slow?: boolean) => Promise<number>;
   cancel: () => void;
   isSpeaking: boolean;
   isLoading: boolean;
@@ -72,57 +72,63 @@ export const useTextToSpeech = (): TextToSpeechHook => {
     setIsLoading(false);
   }, []);
 
-  const speak = useCallback(async (text: string, onEnd?: () => void) => {
+  const speak = useCallback(async (text: string, onEnd?: () => void, slow: boolean = false): Promise<number> => {
     if (isSpeaking || isLoading) {
-      // If already speaking or loading, don't start a new request.
-      return;
+      return 0;
     }
 
     setIsLoading(true);
-    // Cancel any previously playing audio
     if (audioRef.current) {
         cancel();
     }
 
     try {
-      const { audioContent } = await getTextToSpeechAudio(text);
+      const { audioContent } = await getTextToSpeechAudio(text, slow);
       if (!audioContent) {
           throw new Error("No audio content received.");
       }
       const pcmData = base64ToArrayBuffer(audioContent);
       const pcm16 = new Int16Array(pcmData);
-      const wavBlob = pcmToWav(pcm16, 24000); // Gemini TTS sample rate is 24000 Hz
+      const wavBlob = pcmToWav(pcm16, 24000);
       const audioUrl = URL.createObjectURL(wavBlob);
       
       const audio = new Audio(audioUrl);
       audioRef.current = audio;
 
-      audio.onplay = () => {
-        setIsSpeaking(true);
-      };
+      return new Promise((resolve) => {
+        audio.onloadedmetadata = () => {
+          resolve(audio.duration); // Resolve the promise with the audio's duration
+        };
 
-      audio.onended = () => {
-        setIsSpeaking(false);
-        if (onEnd) {
-          onEnd();
-        }
-        URL.revokeObjectURL(audioUrl); // Clean up the object URL
-        audioRef.current = null;
-      };
-      
-      audio.onerror = (e) => {
-          console.error("Audio playback error:", e);
+        audio.onplay = () => {
+          setIsSpeaking(true);
+        };
+
+        audio.onended = () => {
           setIsSpeaking(false);
-          setIsLoading(false);
+          if (onEnd) {
+            onEnd();
+          }
           URL.revokeObjectURL(audioUrl);
           audioRef.current = null;
-      };
+        };
+        
+        audio.onerror = (e) => {
+            console.error("Audio playback error:", e);
+            setIsSpeaking(false);
+            setIsLoading(false);
+            URL.revokeObjectURL(audioUrl);
+            audioRef.current = null;
+            resolve(0); // Resolve with 0 if there's an error
+        };
 
-      await audio.play();
+        audio.play();
+      });
 
     } catch (error) {
       console.error("Error fetching or playing TTS audio:", error);
       setIsSpeaking(false);
+      return 0;
     } finally {
       setIsLoading(false);
     }

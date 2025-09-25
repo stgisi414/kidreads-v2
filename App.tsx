@@ -19,17 +19,19 @@ const App: React.FC = () => {
     setLoadingMessage('Thinking of a wonderful story...');
     setError(null);
     try {
-      const { text, illustration } = await generateStoryAndIllustration(topic);
+      const { title, text, illustration, quiz } = await generateStoryAndIllustration(topic);
       
       const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
       const words = text.split(/\s+/).filter(w => w.length > 0);
 
       setStory({
+        id: Date.now(),
         text,
         illustration,
         sentences: sentences.map(s => s.trim()),
         words: words,
         phonemes: {},
+        quiz,
       });
       setScreen('story');
     } catch (err) {
@@ -47,13 +49,19 @@ const App: React.FC = () => {
     setError(null);
   }, []);
 
+  const handleLoadStory = useCallback((storyToLoad: Story) => {
+    setStory(storyToLoad);
+    setScreen('story');
+  }, []);
+
   return (
     <div className="min-h-screen w-full flex flex-col items-center p-4 bg-sky-50 text-slate-800">
-      {screen === 'story' && <Header />}
+      {screen === 'story' && <Header onGoHome={handleGoHome} />}
       <main className="w-full max-w-4xl mx-auto flex-grow flex items-center justify-center">
         {screen === 'home' && (
           <HomeScreen
             onCreateStory={handleCreateStory}
+            onLoadStory={handleLoadStory}
             isLoading={isLoading}
             loadingMessage={loadingMessage}
             error={error}

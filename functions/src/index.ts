@@ -16,9 +16,29 @@ const allowedOrigins = [
 const corsHandler = cors({ origin: allowedOrigins });
 const speechClient = new SpeechClient();
 
-const IMAGE_PROMPT_SYSTEM_INSTRUCTION = `You are an expert in writing prompts for image generation models. Based on the children's story provided, create a concise and descriptive prompt for a colorful, simple, and friendly cartoon illustration. The style should be like a children's book illustration, with soft edges and a happy mood. Do not include any of the original text from the story in your prompt. Focus on the visual elements of the story.`;
+const STORY_AND_PROMPT_SYSTEM_INSTRUCTION = `You are a creative storyteller and an expert in writing prompts for image generation models.
+Based on the user's topic, you will generate four things in a single JSON object:
+1.  A creative and short title for the story.
+2.  A short, simple, and positive story (2-4 sentences) for a young child.
+    - FORBIDDEN THEMES: violence, death, scary monsters, sadness, complex topics.
+    - Focus on friendship, animals, nature, and joy.
+    - Do not use complex words or sentence structures.
+3.  A concise and descriptive prompt for a colorful, simple, and friendly cartoon illustration that matches the story.
+    - The style should be like a children's book illustration, with soft edges and a happy mood.
+    - Do not include any of the original text from the story in your prompt. Focus on the visual elements.
+4.  A short quiz with 3 multiple-choice questions based on the story, suitable for K-3 students and grounded in Bloom's Taxonomy. Each question should have a "question" text, an array of "options", and the "answer".
 
-const STORY_SYSTEM_INSTRUCTION = `You are a creative storyteller for children. Create a short, simple, and positive story (2-4 sentences). The story must be easy for a young child to read and understand. FORBIDDEN THEMES: violence, death, scary monsters, sadness, complex topics. Focus on friendship, animals, nature, and joy. Do not use complex words or sentence structures. Respond only with the story text.`;
+Your response MUST be a valid JSON object with the following structure:
+{
+  "title": "...",
+  "story": "...",
+  "imagePrompt": "...",
+  "quiz": [
+    { "question": "...", "options": ["...", "...", "..."], "answer": "..." },
+    { "question": "...", "options": ["...", "...", "..."], "answer": "..." },
+    { "question": "...", "options": ["...", "...", "..."], "answer": "..." }
+  ]
+}`;
 
 export const generateStoryAndIllustration = onRequest(
   { secrets: ["API_KEY"], maxInstances: 10, region: "us-central1" },
@@ -38,68 +58,52 @@ export const generateStoryAndIllustration = onRequest(
       }
 
       try {
-        const storyModelUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
-        const storyApiRequest = {
-          contents: [{ parts: [{ text: `A story about: ${topic}` }] }],
-          system_instruction: { parts: [{ text: STORY_SYSTEM_INSTRUCTION }] },
-          generationConfig: { temperature: 0.8, maxOutputTokens: 1024 },
+        const modelUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
+        const apiRequest = {
+          contents: [{ parts: [{ text: `Topic: ${topic}` }] }],
+          system_instruction: { parts: [{ text: STORY_AND_PROMPT_SYSTEM_INSTRUCTION }] },
+          generationConfig: {
+            temperature: 0.8,
+            maxOutputTokens: 2048, // **FIX**: Increased tokens for the quiz
+            responseMimeType: "application/json",
+           },
         };
 
-        const storyApiResponse = await fetch(storyModelUrl, {
+        const apiResponse = await fetch(modelUrl, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(storyApiRequest),
+          body: JSON.stringify(apiRequest),
         });
 
-        if (!storyApiResponse.ok) {
-          const errorText = await storyApiResponse.text();
-          logger.error("Error from Gemini story API:", errorText);
-          throw new Error(`Gemini story API failed with status ${storyApiResponse.status}`);
+        if (!apiResponse.ok) {
+          const errorText = await apiResponse.text();
+          logger.error("Error from Gemini API:", errorText);
+          throw new Error(`Gemini API failed with status ${apiResponse.status}`);
         }
 
-        const storyData = await storyApiResponse.json();
+        const data = await apiResponse.json();
 
         if (
-          !storyApiResponse.ok ||
-          !storyData.candidates ||
-          storyData.candidates.length === 0
+          !data.candidates ||
+          data.candidates.length === 0
         ) {
-          logger.warn("Story generation was blocked for safety reasons.", { topic });
+          logger.warn("Story and prompt generation was blocked for safety reasons.", { topic });
           response.status(400).send({ error: "That topic is not allowed. Please choose a friendlier topic for a children's story." });
           return;
         }
+        
+        const responseJson = JSON.parse(data.candidates[0].content.parts[0].text)
+        const title = responseJson.title;
+        const storyText = responseJson.story;
+        const imagePrompt = responseJson.imagePrompt;
+        const quiz = responseJson.quiz;
 
-        const storyText = storyData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-        if (!storyText) {
-          logger.error("No story text found in Gemini response", storyData);
-          throw new Error("Failed to generate story text from AI.");
+
+        if (!title || !storyText || !imagePrompt || !quiz) {
+          logger.error("Missing title, story, image prompt, or quiz in Gemini response", data);
+          throw new Error("Failed to generate complete story data from AI.");
         }
 
-        const imagePromptModelUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
-        const imagePromptApiRequest = {
-          contents: [{ parts: [{ text: storyText }] }],
-          system_instruction: { parts: [{ text: IMAGE_PROMPT_SYSTEM_INSTRUCTION }] },
-          generationConfig: { temperature: 0.7, maxOutputTokens: 256 },
-        };
-
-        const imagePromptApiResponse = await fetch(imagePromptModelUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(imagePromptApiRequest),
-        });
-
-        if (!imagePromptApiResponse.ok) {
-          const errorText = await imagePromptApiResponse.text();
-          logger.error("Error from Gemini image prompt API:", errorText);
-          throw new Error(`Gemini image prompt API failed with status ${imagePromptApiResponse.status}`);
-        }
-
-        const imagePromptData = await imagePromptApiResponse.json();
-        const imagePrompt = imagePromptData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-        if (!imagePrompt) {
-          logger.error("No image prompt found in Gemini response", imagePromptData);
-          throw new Error("Failed to generate image prompt from AI.");
-        }
 
         const imageModelUrl = `https://us-central1-aiplatform.googleapis.com/v1/projects/kidreads-v2/locations/us-central1/publishers/google/models/imagen-4.0-fast-generate-001:predict`;
         const accessToken = (await (await fetch("http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token", { headers: { "Metadata-Flavor": "Google" } })).json()).access_token;
@@ -133,7 +137,8 @@ export const generateStoryAndIllustration = onRequest(
           throw new Error("Failed to generate illustration.");
         }
         const illustration = `data:image/jpeg;base64,${base64ImageBytes}`;
-        response.status(200).send({ text: storyText, illustration });
+        // **FIX**: Send quiz data to the frontend
+        response.status(200).send({ title, text: storyText, illustration, quiz });
       } catch (error) {
         logger.error("Error in generateStoryAndIllustration:", error);
         response.status(500).send({ error: "Could not generate story and illustration." });
@@ -202,7 +207,8 @@ export const geminiTTS = onRequest(
       if (request.method !== "POST") {
         return response.status(405).send("Method Not Allowed");
       }
-      const { text } = request.body;
+      // **FIX**: Destructure the new 'slow' parameter from the request body
+      const { text, slow } = request.body;
       if (!text) {
         return response.status(400).send("Bad Request: Missing text");
       }
@@ -212,14 +218,20 @@ export const geminiTTS = onRequest(
       }
       try {
         const ttsUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${GEMINI_API_KEY}`;
+        
+        // **FIX**: Conditionally wrap the text in SSML for slowed speech
+        const speechText = slow 
+          ? `<speak><prosody rate="slow">${text}</prosody></speak>`
+          : `<speak>${text}</speak>`;
+
         const payload = {
           "model": "gemini-2.5-flash-preview-tts",
-          "contents": [{ "parts": [{ "text": text }] }],
+          "contents": [{ "parts": [{ "text": speechText }] }],
           "generationConfig": {
             "responseModalities": ["AUDIO"],
             "speechConfig": {
               "voiceConfig": {
-                "prebuiltVoiceConfig": { "voiceName": "Leda" }, // A youthful, friendly voice
+                "prebuiltVoiceConfig": { "voiceName": "Leda" },
               },
             },
           },
@@ -264,7 +276,7 @@ export const transcribeAudio = onRequest(
           content: audioBytes,
         };
         const config = {
-          encoding: "WEBM_OPUS" as const, 
+          encoding: "WEBM_OPUS" as const,
           sampleRateHertz: 48000,
           languageCode: "en-US",
           model: "latest_long",
@@ -286,5 +298,4 @@ export const transcribeAudio = onRequest(
       }
     });
   },
-);
-
+);  

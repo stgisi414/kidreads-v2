@@ -5,6 +5,7 @@ import { useTextToSpeech } from '../hooks/useTextToSpeech';
 import Icon from './Icon';
 import { getPhonemesForWord, transcribeAudio } from '../services/geminiService';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
+import QuizModal from './QuizModal';
 
 type StoryScreenProps = {
   story: Story;
@@ -12,7 +13,7 @@ type StoryScreenProps = {
 };
 
 type Feedback = 'correct' | 'incorrect' | null;
-type FlowState = 'IDLE' | 'SPEAKING' | 'LISTENING' | 'TRANSCRIBING' | 'EVALUATING';
+type FlowState = 'INITIAL' | 'IDLE' | 'SPEAKING' | 'LISTENING' | 'TRANSCRIBING' | 'EVALUATING' | 'FINISHED';
 
 const normalizeText = (text: string) => {
     return text.trim().toLowerCase().replace(/[.,!?;:"']/g, '');
@@ -50,9 +51,32 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome }) => {
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [phonemeData, setPhonemeData] = useState<{word: string, phonemes: string[]}|null>(null);
   const [isLoadingPhonemes, setIsLoadingPhonemes] = useState(false);
+  const [isQuizVisible, setIsQuizVisible] = useState(false);
+  const [highlightedPhonemeIndex, setHighlightedPhonemeIndex] = useState<number | null>(null);
+  const [isStorySaved, setIsStorySaved] = useState(false);
   
-  // **FIX**: Replaced multiple booleans with a single state machine
-  const [flowState, setFlowState] = useState<FlowState>('IDLE');
+  const [flowState, setFlowState] = useState<FlowState>('INITIAL');
+
+  useEffect(() => {
+    const savedStories: Story[] = JSON.parse(localStorage.getItem('savedStories') || '[]');
+    const isSaved = savedStories.some(s => s.title === story.title);
+    setIsStorySaved(isSaved);
+  }, [story.title]);
+
+  const handleSaveStory = () => {
+    if (isStorySaved) return;
+
+    const savedStories: Story[] = JSON.parse(localStorage.getItem('savedStories') || '[]');
+    
+    // Create a new story object with a unique ID
+    const storyToSave = { ...story, id: Date.now() };
+
+    // Add the new story and limit the total to 10
+    const newSavedStories = [storyToSave, ...savedStories].slice(0, 10);
+    
+    localStorage.setItem('savedStories', JSON.stringify(newSavedStories));
+    setIsStorySaved(true);
+  };
 
   const { speak, cancel, isSpeaking } = useTextToSpeech();
   const { recorderState, startRecording, stopRecording, permissionError } = useAudioRecorder();
@@ -91,7 +115,6 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome }) => {
             expectedText = story.sentences[currentSentenceIndex];
         }
         
-        // **FIX**: Lowered similarity threshold to be more forgiving
         const similarity = calculateSimilarity(normalizeText(transcription || ""), normalizeText(expectedText));
         
         setFlowState('EVALUATING');
@@ -99,19 +122,19 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome }) => {
             setFeedback('correct');
             setTimeout(() => {
                 setFeedback(null);
-                 if(readingMode === ReadingMode.WORD) {
-                     if(currentWordIndex < story.words.length - 1) {
-+                        setFlowState('IDLE');
-                         setCurrentWordIndex(prev => prev + 1);
-                     } else {
-                         setFlowState('IDLE');
+                if (readingMode === ReadingMode.WORD) {
+                    if (currentWordIndex < story.words.length - 1) {
+                        setCurrentWordIndex(prev => prev + 1);
+                        setFlowState('IDLE');
+                    } else {
+                        setFlowState('FINISHED');
                     }
                 } else {
-                     if(currentSentenceIndex < story.sentences.length - 1) {
+                     if (currentSentenceIndex < story.sentences.length - 1) {
                          setCurrentSentenceIndex(prev => prev + 1);
-+                        setFlowState('IDLE');
+                        setFlowState('IDLE');
                      } else {
-                         setFlowState('IDLE');
+                         setFlowState('FINISHED');
                      }
                 }
             }, 1500);
@@ -119,7 +142,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome }) => {
             setFeedback('incorrect');
             setTimeout(() => {
               setFeedback(null);
-              setFlowState('IDLE'); // This will re-trigger the readAloud effect
+              setFlowState('IDLE');
             }, 2000);
         }
       } catch (e) {
@@ -132,13 +155,12 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome }) => {
             }, 2000);
       }
     } else {
-       setFlowState('IDLE'); // No audio recorded, try again
+       setFlowState('IDLE');
     }
   }, [recorderState, stopRecording, readingMode, currentSentenceIndex, currentWordIndex, story]);
 
-  // Main effect to drive the read-aloud loop
   useEffect(() => {
-    if (flowState === 'IDLE' && readingMode !== 'Phoneme') {
+    if (flowState === 'IDLE' && readingMode !== 'Phoneme' && readingMode !== 'Quiz') {
         readAloud();
     }
   }, [flowState, readingMode, readAloud]);
@@ -147,36 +169,62 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome }) => {
   const handleStartReading = () => {
     setCurrentSentenceIndex(0);
     setCurrentWordIndex(0);
-    setFlowState('IDLE'); // This kicks off the useEffect above
+    setFlowState('IDLE');
   };
   
   const handleModeChange = (mode: ReadingMode) => {
     cancel();
-    setFlowState('IDLE');
+    if (mode === ReadingMode.QUIZ) {
+        setIsQuizVisible(true);
+    } else {
+        setIsQuizVisible(false);
+    }
+    setFlowState('INITIAL');
     setReadingMode(mode);
     setCurrentSentenceIndex(0);
     setCurrentWordIndex(0);
     setPhonemeData(null);
   };
 
+  // **FIX**: Add handler to read the full story
+  const handleReadFullStory = useCallback(() => {
+    cancel();
+    setFlowState('SPEAKING'); // Set state to show something is happening
+    speak(story.text, () => {
+      setFlowState('INITIAL'); // Reset when done
+    });
+  }, [story.text, speak, cancel]);
+
   const handleWordClickForPhonemes = async (word: string) => {
     if (readingMode !== ReadingMode.PHONEME || isSpeaking || isLoadingPhonemes) return;
+    
+    // Reset previous animation state
+    setHighlightedPhonemeIndex(null);
+    cancel(); // Cancel any ongoing speech
+
     setIsLoadingPhonemes(true);
     setPhonemeData({word, phonemes: ['...']});
+    
     try {
       const phonemes = await getPhonemesForWord(word);
       setPhonemeData({word, phonemes});
       
-      let i = 0;
-      const speakNextPhoneme = () => {
-        if (i < phonemes.length) {
-          speak(phonemes[i], () => {
-            i++;
-            speakNextPhoneme();
-          });
+      // Speak the word slowly and get its duration for the animation
+      const duration = await speak(word, () => {
+        // Callback when audio finishes
+        setHighlightedPhonemeIndex(null);
+      }, true); // The 'true' flag requests slow audio
+      
+      // Animate the phoneme highlights based on the audio duration
+      if (duration > 0 && phonemes.length > 0) {
+        const timePerPhoneme = (duration * 1000) / phonemes.length; // Duration in milliseconds
+        
+        for (let i = 0; i < phonemes.length; i++) {
+          setTimeout(() => {
+            setHighlightedPhonemeIndex(i);
+          }, i * timePerPhoneme);
         }
-      };
-      speakNextPhoneme();
+      }
 
     } catch (e) {
       console.error(e);
@@ -211,7 +259,9 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome }) => {
 
   return (
     <div className="flex flex-col gap-4 w-full animate-fade-in">
+        {isQuizVisible && <QuizModal questions={story.quiz} onClose={() => setIsQuizVisible(false)} />}
         <div className="bg-white p-6 rounded-3xl shadow-xl">
+            <h2 className="text-4xl font-black text-center text-blue-600 mb-4">{story.title}</h2>
             <img src={story.illustration} alt="Story illustration" className="w-full h-auto max-h-96 object-contain rounded-2xl mb-6"/>
             
             <div className="text-3xl leading-relaxed text-slate-700 space-y-4 mb-8">
@@ -232,27 +282,46 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome }) => {
                 <div className="my-4 p-4 bg-blue-100 rounded-lg text-center">
                     <p className="text-xl font-bold">{phonemeData.word}</p>
                     <p className="text-3xl font-bold tracking-widest text-blue-700">
-                        {phonemeData.phonemes.join(' - ')}
+                        {/* **FIX**: Render phonemes with dynamic highlighting */}
+                        {phonemeData.phonemes.map((phoneme, index) => (
+                          <React.Fragment key={index}>
+                            <span className={`p-1 rounded-md transition-colors duration-150 ${highlightedPhonemeIndex === index ? 'bg-yellow-300' : ''}`}>
+                              {phoneme}
+                            </span>
+                            {index < phonemeData.phonemes.length - 1 && ' - '}
+                          </React.Fragment>
+                        ))}
                     </p>
                 </div>
             )}
             
             <div className="flex flex-col md:flex-row items-center justify-between gap-4 p-4 bg-slate-50 rounded-2xl">
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                     {Object.values(ReadingMode).map(mode => (
                         <button key={mode} onClick={() => handleModeChange(mode)}
                                 className={`px-4 py-2 rounded-full font-semibold transition-all ${readingMode === mode ? 'bg-blue-500 text-white shadow-md' : 'bg-slate-200 hover:bg-slate-300 text-slate-600'}`}>
                           {mode}
                       </button>
                   ))}
+
+                  <button onClick={handleReadFullStory}
+                          disabled={isSpeaking}
+                          className="px-4 py-2 rounded-full font-semibold transition-all bg-purple-500 text-white hover:bg-purple-600 disabled:bg-gray-400">
+                    Read Full Story
+                  </button>
               </div>
-              {flowState === 'IDLE' && readingMode !== ReadingMode.PHONEME && (
+
+              <button onClick={handleSaveStory} disabled={isStorySaved} className="px-6 py-3 bg-green-500 text-white rounded-full font-bold text-lg hover:bg-green-600 transition-transform hover:scale-105 shadow-lg disabled:bg-gray-400 disabled:cursor-not-allowed">
+                  {isStorySaved ? 'Saved!' : 'Save Story'}
+              </button>
+
+              {(flowState === 'INITIAL' || flowState === 'FINISHED') && readingMode !== ReadingMode.PHONEME && readingMode !== ReadingMode.QUIZ && (
                   <button 
                       onClick={handleStartReading} 
                       disabled={permissionError}
                       className="flex items-center gap-2 px-6 py-3 bg-green-500 text-white rounded-full font-bold text-xl hover:bg-green-600 transition-transform hover:scale-105 shadow-lg disabled:bg-gray-400 disabled:cursor-not-allowed disabled:transform-none">
                       <Icon name="play" className="w-6 h-6" />
-                      <span>Start Reading</span>
+                      <span>{flowState === 'FINISHED' ? 'Read Again' : 'Start Reading'}</span>
                   </button>
               )}
                {flowState === 'LISTENING' && (
@@ -265,7 +334,13 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome }) => {
               )}
           </div>
           
-          { flowState !== 'IDLE' &&
+          {flowState === 'FINISHED' && (
+            <div className="mt-6 p-4 rounded-2xl bg-green-100 text-center transition-opacity duration-300">
+                <div className="flex justify-center items-center gap-2 text-green-700 text-2xl font-bold"><Icon name="star" className="w-8 h-8"/> You finished the story! Great job!</div>
+            </div>
+          )}
+
+          { (flowState !== 'IDLE' && flowState !== 'INITIAL' && flowState !== 'FINISHED') &&
               <div className="mt-6 p-4 rounded-2xl bg-amber-100 text-center transition-opacity duration-300">
                   {flowState === 'LISTENING' && <p className="text-xl font-semibold text-amber-800 animate-pulse">Your turn! Read the text and press "I'm Done".</p>}
                   {flowState === 'SPEAKING' && <p className="text-xl font-semibold text-amber-800">Listen carefully...</p>}
