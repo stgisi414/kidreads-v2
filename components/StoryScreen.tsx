@@ -99,18 +99,20 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome }) => {
             setFeedback('correct');
             setTimeout(() => {
                 setFeedback(null);
-                if(readingMode === ReadingMode.WORD) {
-                    if(currentWordIndex < story.words.length - 1) {
-                        setCurrentWordIndex(prev => prev + 1);
-                    } else {
-                        setFlowState('IDLE');
+                 if(readingMode === ReadingMode.WORD) {
+                     if(currentWordIndex < story.words.length - 1) {
++                        setFlowState('IDLE');
+                         setCurrentWordIndex(prev => prev + 1);
+                     } else {
+                         setFlowState('IDLE');
                     }
                 } else {
                      if(currentSentenceIndex < story.sentences.length - 1) {
-                        setCurrentSentenceIndex(prev => prev + 1);
-                    } else {
-                        setFlowState('IDLE');
-                    }
+                         setCurrentSentenceIndex(prev => prev + 1);
++                        setFlowState('IDLE');
+                     } else {
+                         setFlowState('IDLE');
+                     }
                 }
             }, 1500);
         } else {

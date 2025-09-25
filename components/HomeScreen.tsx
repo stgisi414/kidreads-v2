@@ -23,7 +23,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ onCreateStory, isLoading, loadi
         if (audioBase64) {
             try {
                 const { transcription } = await transcribeAudio(audioBase64);
-                if (transcription) {
+                if (transcription && transcription.trim()) {
                     onCreateStory(transcription);
                 }
             } catch (e) {

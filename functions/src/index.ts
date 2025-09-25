@@ -16,6 +16,8 @@ const allowedOrigins = [
 const corsHandler = cors({ origin: allowedOrigins });
 const speechClient = new SpeechClient();
 
+const IMAGE_PROMPT_SYSTEM_INSTRUCTION = `You are an expert in writing prompts for image generation models. Based on the children's story provided, create a concise and descriptive prompt for a colorful, simple, and friendly cartoon illustration. The style should be like a children's book illustration, with soft edges and a happy mood. Do not include any of the original text from the story in your prompt. Focus on the visual elements of the story.`;
+
 const STORY_SYSTEM_INSTRUCTION = `You are a creative storyteller for children. Create a short, simple, and positive story (2-4 sentences). The story must be easy for a young child to read and understand. FORBIDDEN THEMES: violence, death, scary monsters, sadness, complex topics. Focus on friendship, animals, nature, and joy. Do not use complex words or sentence structures. Respond only with the story text.`;
 
 export const generateStoryAndIllustration = onRequest(
@@ -57,7 +59,11 @@ export const generateStoryAndIllustration = onRequest(
 
         const storyData = await storyApiResponse.json();
 
-        if (storyData.candidates?.[0]?.finishReason === "SAFETY") {
+        if (
+          !storyApiResponse.ok ||
+          !storyData.candidates ||
+          storyData.candidates.length === 0
+        ) {
           logger.warn("Story generation was blocked for safety reasons.", { topic });
           response.status(400).send({ error: "That topic is not allowed. Please choose a friendlier topic for a children's story." });
           return;
@@ -69,11 +75,37 @@ export const generateStoryAndIllustration = onRequest(
           throw new Error("Failed to generate story text from AI.");
         }
 
+        const imagePromptModelUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
+        const imagePromptApiRequest = {
+          contents: [{ parts: [{ text: storyText }] }],
+          system_instruction: { parts: [{ text: IMAGE_PROMPT_SYSTEM_INSTRUCTION }] },
+          generationConfig: { temperature: 0.7, maxOutputTokens: 256 },
+        };
+
+        const imagePromptApiResponse = await fetch(imagePromptModelUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(imagePromptApiRequest),
+        });
+
+        if (!imagePromptApiResponse.ok) {
+          const errorText = await imagePromptApiResponse.text();
+          logger.error("Error from Gemini image prompt API:", errorText);
+          throw new Error(`Gemini image prompt API failed with status ${imagePromptApiResponse.status}`);
+        }
+
+        const imagePromptData = await imagePromptApiResponse.json();
+        const imagePrompt = imagePromptData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        if (!imagePrompt) {
+          logger.error("No image prompt found in Gemini response", imagePromptData);
+          throw new Error("Failed to generate image prompt from AI.");
+        }
+
         const imageModelUrl = `https://us-central1-aiplatform.googleapis.com/v1/projects/kidreads-v2/locations/us-central1/publishers/google/models/imagen-4.0-fast-generate-001:predict`;
         const accessToken = (await (await fetch("http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token", { headers: { "Metadata-Flavor": "Google" } })).json()).access_token;
         const imageApiRequest = {
           instances: [{
-            prompt: `A colorful, simple, and friendly cartoon illustration for a child's story. The style should be like a children's book illustration, with soft edges and a happy mood. The illustration should depict: ${storyText}`,
+            prompt: imagePrompt,
             negativePrompt: "text, words, letters, writing, captions, headlines, titles, signs, numbers, fonts, don't write anything at all it's just an illustration",
           }],
           parameters: { sampleCount: 1, aspectRatio: "16:9", mimeType: "image/jpeg" },
@@ -81,8 +113,11 @@ export const generateStoryAndIllustration = onRequest(
 
         const imageApiResponse = await fetch(imageModelUrl, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${accessToken}` },
-          body: JSON.stringify(imageApiRequest),
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify(imageApiRequest),
         });
 
         if (!imageApiResponse.ok) {

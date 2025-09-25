@@ -25,12 +25,12 @@ export const useAudioRecorder = (): AudioRecorderHook => {
 
   const startRecording = useCallback(async () => {
     if (recorderState.status === 'recording') return;
-
+    
+    setPermissionError(false);
     try {
       // **FIX**: Request microphone access only when start is called.
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
-      setPermissionError(false);
       
       const mediaRecorder = new MediaRecorder(streamRef.current, { mimeType: 'audio/webm;codecs=opus' });
       mediaRecorderRef.current = mediaRecorder;
