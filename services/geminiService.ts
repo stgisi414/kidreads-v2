@@ -10,21 +10,28 @@ const getFunctionUrl = (name: string) => {
 
 async function callFirebaseFunction(functionName: string, bodyData: any) {
   const url = getFunctionUrl(functionName);
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(bodyData),
-  });
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(bodyData),
+    });
 
-  if (!response.ok) {
-    const error: any = new Error(`Error from ${functionName}: ${await response.text()}`);
-    error.status = response.status;
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Error from ${functionName} (status ${response.status}):`, errorText);
+      const error: any = new Error(`Failed to call function ${functionName}`);
+      error.status = response.status;
+      throw error;
+    }
+
+    return response.json();
+  } catch (error) {
+    console.error(`Network error or failure to fetch from ${functionName}:`, error);
     throw error;
   }
-
-  return response.json();
 }
 
 export const generateStoryAndIllustration = (topic: string) => {

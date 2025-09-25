@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Story, QuizResult } from '../types';
 import { ReadingMode } from '../types';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
@@ -61,6 +61,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
   const [isReadingFullStory, setIsReadingFullStory] = useState(false);
   const [fullStoryHighlightIndex, setFullStoryHighlightIndex] = useState(-1);
   const [preReadState, setPreReadState] = useState<any>(null);
+  const fullStoryTimeoutRef = useRef<NodeJS.Timeout[]>([]);
 
   const { speak, cancel, isSpeaking } = useTextToSpeech();
   const { recorderState, startRecording, stopRecording, permissionError } = useAudioRecorder();
@@ -207,7 +208,11 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
     setPhonemeData(null);
   };
 
-  const handleReadFullStory = useCallback(() => {
+  const handleReadFullStory = useCallback(async () => {
+    // Clear any previous timeouts
+    fullStoryTimeoutRef.current.forEach(clearTimeout);
+    fullStoryTimeoutRef.current = [];
+
     cancel();
     
     setPreReadState({
@@ -220,11 +225,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
     setIsReadingFullStory(true);
     setFullStoryHighlightIndex(0);
 
-    let charIndex = 0;
-    const words = story.text.split(/\s+/);
-
-    speak(story.text, () => {
-      // On end
+    const onEnd = () => {
       setIsReadingFullStory(false);
       setFullStoryHighlightIndex(-1);
       if (preReadState) {
@@ -232,21 +233,34 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
         setCurrentSentenceIndex(preReadState.currentSentenceIndex);
         setCurrentWordIndex(preReadState.currentWordIndex);
       }
-    }, false, voice, false, (e) => {
+    };
+
+    const duration = await speak(story.text, onEnd, false, voice, false);
+
+    if (duration > 0) {
       if (readingMode === ReadingMode.SENTENCE) {
-        const sentenceEndBoundaries = story.sentences.reduce((acc, s, i) => {
-          const end = (acc.length > 0 ? acc[acc.length - 1] : 0) + s.length;
-          acc.push(end);
-          return acc;
-        }, [] as number[]);
-        const sentenceIndex = sentenceEndBoundaries.findIndex(end => e.charIndex < end);
-        setFullStoryHighlightIndex(sentenceIndex);
+        const sentences = story.sentences;
+        let cumulativeDelay = 0;
+        for (let i = 0; i < sentences.length; i++) {
+          const sentenceDuration = (sentences[i].length / story.text.length) * duration * 1000;
+          const timeout = setTimeout(() => {
+            setFullStoryHighlightIndex(i);
+          }, cumulativeDelay);
+          fullStoryTimeoutRef.current.push(timeout);
+          cumulativeDelay += sentenceDuration;
+        }
       } else { // Word and Phoneme mode
-        const textSoFar = story.text.substring(0, e.charIndex);
-        const wordIndex = textSoFar.split(/\s+/).length - 1;
-        setFullStoryHighlightIndex(wordIndex);
+        const words = story.words;
+        const timePerWord = (duration * 1000) / words.length;
+        for (let i = 0; i < words.length; i++) {
+          const timeout = setTimeout(() => {
+            setFullStoryHighlightIndex(i);
+          }, i * timePerWord);
+          fullStoryTimeoutRef.current.push(timeout);
+        }
       }
-    });
+    }
+
   }, [story, readingMode, voice, cancel, flowState, currentSentenceIndex, currentWordIndex, preReadState]);
   
   const getWordSpans = (sentence: string, sentenceIndex: number) => {

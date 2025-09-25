@@ -51,13 +51,13 @@ const pcmToWav = (pcmData: Int16Array, sampleRate: number = 24000) => {
 
 
 interface TextToSpeechHook {
-  speak: (text: string, onEnd?: () => void, slow?: boolean, voice?: string, isWord?: boolean, onBoundary?: (e: any) => void) => Promise<number>;
+  speak: (text: string, onEnd?: () => void, slow?: boolean, voice?: string, isWord?: boolean) => Promise<number>;
   cancel: () => void;
   isSpeaking: boolean;
   isLoading: boolean;
 }
 
-export const useTextToSpeech = (): TextToSpeechHook => {
+export const useTextToSpeech = (): TextToToSpeechHook => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -68,6 +68,7 @@ export const useTextToSpeech = (): TextToSpeechHook => {
       audioRef.current.src = '';
       audioRef.current = null;
     }
+    window.speechSynthesis.cancel(); // Also cancel browser speech
     setIsSpeaking(false);
     setIsLoading(false);
   }, []);
@@ -78,9 +79,7 @@ export const useTextToSpeech = (): TextToSpeechHook => {
     }
 
     setIsLoading(true);
-    if (audioRef.current) {
-        cancel();
-    }
+    cancel();
 
     try {
       const { audioContent } = await getTextToSpeechAudio(text, slow, voice, isWord);
@@ -96,39 +95,31 @@ export const useTextToSpeech = (): TextToSpeechHook => {
       audioRef.current = audio;
 
       if (onBoundary) {
-        // @ts-ignore
-        const speech = new SpeechSynthesisUtterance(text);
-        speech.onboundary = onBoundary;
-        window.speechSynthesis.speak(speech);
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.volume = 0; // Mute the browser's voice
+        utterance.onboundary = onBoundary;
+        window.speechSynthesis.speak(utterance);
       }
 
       return new Promise((resolve) => {
-        audio.onloadedmetadata = () => {
-          resolve(audio.duration);
-        };
-
-        audio.onplay = () => {
-          setIsSpeaking(true);
-        };
-
+        audio.onloadedmetadata = () => resolve(audio.duration);
+        audio.onplay = () => setIsSpeaking(true);
         audio.onended = () => {
           setIsSpeaking(false);
-          if (onEnd) {
-            onEnd();
-          }
+          if (onEnd) onEnd();
           URL.revokeObjectURL(audioUrl);
           audioRef.current = null;
+          window.speechSynthesis.cancel();
         };
-        
         audio.onerror = (e) => {
-            console.error("Audio playback error:", e);
-            setIsSpeaking(false);
-            setIsLoading(false);
-            URL.revokeObjectURL(audioUrl);
-            audioRef.current = null;
-            resolve(0);
+          console.error("Audio playback error:", e);
+          setIsSpeaking(false);
+          setIsLoading(false);
+          URL.revokeObjectURL(audioUrl);
+          audioRef.current = null;
+          window.speechSynthesis.cancel();
+          resolve(0);
         };
-
         audio.play();
       });
 
@@ -142,9 +133,7 @@ export const useTextToSpeech = (): TextToSpeechHook => {
   }, [isSpeaking, isLoading, cancel]);
 
   useEffect(() => {
-      return () => {
-          cancel();
-      };
+    return () => cancel();
   }, [cancel]);
 
   return { speak, cancel, isSpeaking, isLoading };
