@@ -1,22 +1,27 @@
+// stgisi414/kidreads-v2/kidreads-v2-5096bbab39cec5b36bff0af2170f45b4a523b759/components/QuizModal.tsx
 import React, { useState, useEffect } from 'react';
-import type { QuizQuestion } from '../types';
+import type { QuizQuestion, QuizResult } from '../types';
 import Icon from './Icon';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
 
 type QuizModalProps = {
   questions: QuizQuestion[];
   onClose: () => void;
+  onQuizComplete: (results: Omit<QuizResult, 'date'>) => void;
   voice: string;
+  isSpeaking: boolean;
 };
 
-const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, voice }) => {
+const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, onQuizComplete, voice, isSpeaking: isParentSpeaking }) => {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
   const [score, setScore] = useState(0);
   const [showResults, setShowResults] = useState(false);
+  const [userAnswers, setUserAnswers] = useState<QuizResult['answers']>([]);
 
-  const { speak, cancel, isSpeaking } = useTextToSpeech();
+  const { speak, cancel, isSpeaking: isQuizSpeaking } = useTextToSpeech();
+  const isSpeaking = isParentSpeaking || isQuizSpeaking;
 
   useEffect(() => {
     return () => {
@@ -35,6 +40,12 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, voice }) => {
       speak("Not quite, let's try the next one.", undefined, false, voice);
     }
 
+    setUserAnswers(prev => [...prev, {
+      question: questions[currentQuestionIndex].question,
+      selected: selectedAnswer!,
+      correct: questions[currentQuestionIndex].answer,
+    }]);
+
     setTimeout(() => {
       setIsCorrect(null);
       setSelectedAnswer(null);
@@ -42,6 +53,11 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, voice }) => {
         setCurrentQuestionIndex(i => i + 1);
       } else {
         setShowResults(true);
+        onQuizComplete({ score: score + (correct ? 1 : 0), answers: [...userAnswers, {
+            question: questions[currentQuestionIndex].question,
+            selected: selectedAnswer!,
+            correct: questions[currentQuestionIndex].answer,
+        }] });
       }
     }, 3500);
   };
@@ -53,6 +69,7 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, voice }) => {
     setIsCorrect(null);
     setScore(0);
     setShowResults(false);
+    setUserAnswers([]);
   };
 
    const handleSelectAnswer = (option: string) => {
@@ -103,7 +120,7 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, voice }) => {
                   <button
                     key={option}
                     onClick={() => handleSelectAnswer(option)}
-                    disabled={isCorrect !== null}
+                    disabled={isCorrect !== null || isSpeaking}
                     className={`p-4 rounded-xl text-lg font-semibold text-left transition-all duration-300 border-4
                       ${isTheCorrectAnswer ? 'bg-green-100 border-green-400 text-green-800' : ''}
                       ${isTheIncorrectAnswer ? 'bg-red-100 border-red-400 text-red-800' : ''}
@@ -119,7 +136,7 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, voice }) => {
             </div>
             <button
               onClick={handleAnswerSubmit}
-              disabled={!selectedAnswer || isCorrect !== null}
+              disabled={!selectedAnswer || isCorrect !== null || isSpeaking}
               className="w-full px-6 py-4 bg-blue-500 text-white rounded-full font-bold text-xl hover:bg-blue-600 transition-transform hover:scale-105 shadow-lg disabled:bg-gray-400 disabled:cursor-not-allowed disabled:transform-none"
             >
               Submit

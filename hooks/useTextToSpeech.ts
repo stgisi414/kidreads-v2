@@ -51,7 +51,7 @@ const pcmToWav = (pcmData: Int16Array, sampleRate: number = 24000) => {
 
 
 interface TextToSpeechHook {
-  speak: (text: string, onEnd?: () => void, slow?: boolean, voice?: string) => Promise<number>;
+  speak: (text: string, onEnd?: () => void, slow?: boolean, voice?: string, isWord?: boolean) => Promise<number>;
   cancel: () => void;
   isSpeaking: boolean;
   isLoading: boolean;
@@ -72,7 +72,7 @@ export const useTextToSpeech = (): TextToSpeechHook => {
     setIsLoading(false);
   }, []);
 
-  const speak = useCallback(async (text: string, onEnd?: () => void, slow: boolean = false, voice: string = 'Leda'): Promise<number> => {
+  const speak = useCallback(async (text: string, onEnd?: () => void, slow: boolean = false, voice: string = 'Leda', isWord: boolean = false): Promise<number> => {
     if (isSpeaking || isLoading) {
       return 0;
     }
@@ -83,7 +83,7 @@ export const useTextToSpeech = (): TextToSpeechHook => {
     }
 
     try {
-      const { audioContent } = await getTextToSpeechAudio(text, slow, voice);
+      const { audioContent } = await getTextToSpeechAudio(text, slow, voice, isWord);
       if (!audioContent) {
           throw new Error("No audio content received.");
       }
@@ -97,7 +97,7 @@ export const useTextToSpeech = (): TextToSpeechHook => {
 
       return new Promise((resolve) => {
         audio.onloadedmetadata = () => {
-          resolve(audio.duration); // Resolve the promise with the audio's duration
+          resolve(audio.duration);
         };
 
         audio.onplay = () => {
@@ -119,7 +119,7 @@ export const useTextToSpeech = (): TextToSpeechHook => {
             setIsLoading(false);
             URL.revokeObjectURL(audioUrl);
             audioRef.current = null;
-            resolve(0); // Resolve with 0 if there's an error
+            resolve(0);
         };
 
         audio.play();
@@ -134,7 +134,6 @@ export const useTextToSpeech = (): TextToSpeechHook => {
     }
   }, [isSpeaking, isLoading, cancel]);
 
-  // Cleanup effect to cancel speech if the component unmounts
   useEffect(() => {
       return () => {
           cancel();

@@ -1,6 +1,5 @@
-// stgisi414/kidreads-v2/kidreads-v2-5096bbab39cec5b36bff0af2170f45b4a523b759/components/StoryScreen.tsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import type { Story } from '../types';
+import type { Story, QuizResult } from '../types';
 import { ReadingMode } from '../types';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
 import Icon from './Icon';
@@ -46,7 +45,7 @@ const calculateSimilarity = (str1: string, str2: string) => {
     return similarity;
 };
 
-const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice    }) => {
+const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => {
   const [readingMode, setReadingMode] = useState<ReadingMode>(ReadingMode.SENTENCE);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
@@ -56,39 +55,47 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice    }) 
   const [isQuizVisible, setIsQuizVisible] = useState(false);
   const [highlightedPhonemeIndex, setHighlightedPhonemeIndex] = useState<number | null>(null);
   const [isStorySaved, setIsStorySaved] = useState(false);
-  
   const [flowState, setFlowState] = useState<FlowState>('INITIAL');
-  const { speak, cancel, isSpeaking } = useTextToSpeech();
+  const [currentStory, setCurrentStory] = useState<Story>(story);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
 
   useEffect(() => {
     const savedStories: Story[] = JSON.parse(localStorage.getItem('savedStories') || '[]');
-    const isSaved = savedStories.some(s => s.title === story.title);
+    const isSaved = savedStories.some(s => s.id === story.id);
     setIsStorySaved(isSaved);
-  }, [story.title]);
+  }, [story.id]);
 
   const handleSaveStory = () => {
     if (isStorySaved) return;
 
     const savedStories: Story[] = JSON.parse(localStorage.getItem('savedStories') || '[]');
     
-    // Create a new story object with a unique ID
-    const storyToSave = { ...story, id: Date.now() };
-
-    // Add the new story and limit the total to 10
+    // Use the story object directly, which has a stable ID from App.tsx
+    const storyToSave = { ...currentStory };
+    
     const newSavedStories = [storyToSave, ...savedStories].slice(0, 10);
     
     localStorage.setItem('savedStories', JSON.stringify(newSavedStories));
     setIsStorySaved(true);
   };
 
+  const { speak, cancel, isSpeaking } = useTextToSpeech();
   const { recorderState, startRecording, stopRecording, permissionError } = useAudioRecorder();
+
+  useEffect(() => {
+    if (flowState === 'FINISHED') {
+      speak("You finished the story! Great job!", undefined, false, voice);
+    }
+  }, [flowState, speak, voice]);
 
   const readAloud = useCallback(() => {
     if (flowState !== 'IDLE' && flowState !== 'EVALUATING') return;
 
     let textToRead = '';
+    let isWord = false;
     if (readingMode === ReadingMode.WORD) {
       textToRead = story.words[currentWordIndex];
+      isWord = true;
     } else if (readingMode === ReadingMode.SENTENCE) {
       textToRead = story.sentences[currentSentenceIndex];
     }
@@ -97,7 +104,13 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice    }) 
     speak(textToRead, () => {
         startRecording();
         setFlowState('LISTENING');
-    }, false, voice);
+    }, false, voice, isWord, (e) => {
+      if (readingMode === ReadingMode.WORD) {
+        setHighlightedIndex(currentWordIndex + e.charIndex);
+      } else {
+        setHighlightedIndex(currentSentenceIndex);
+      }
+    });
 
   }, [readingMode, currentSentenceIndex, currentWordIndex, story, speak, startRecording, flowState, voice]);
 
@@ -122,6 +135,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice    }) 
         setFlowState('EVALUATING');
         if (similarity >= 65) {
             setFeedback('correct');
+            speak("Great Job!", undefined, false, voice);
             setTimeout(() => {
                 setFeedback(null);
                 if (readingMode === ReadingMode.WORD) {
@@ -139,9 +153,10 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice    }) 
                          setFlowState('FINISHED');
                      }
                 }
-            }, 1500);
+            }, 2500); // Increased pause to 2.5 seconds
         } else {
             setFeedback('incorrect');
+            speak("Let's try again!", undefined, false, voice);
             setTimeout(() => {
               setFeedback(null);
               setFlowState('IDLE');
@@ -151,6 +166,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice    }) 
         console.error("Transcription failed", e);
         setFlowState('EVALUATING');
         setFeedback('incorrect');
+        speak("Let's try again!", undefined, false, voice);
          setTimeout(() => {
               setFeedback(null);
               setFlowState('IDLE');
@@ -159,7 +175,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice    }) 
     } else {
        setFlowState('IDLE');
     }
-  }, [recorderState, stopRecording, readingMode, currentSentenceIndex, currentWordIndex, story]);
+  }, [recorderState, stopRecording, readingMode, currentSentenceIndex, currentWordIndex, story, voice, speak]);
 
   useEffect(() => {
     if (flowState === 'IDLE' && readingMode !== 'Phoneme' && readingMode !== 'Quiz') {
@@ -188,21 +204,19 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice    }) 
     setPhonemeData(null);
   };
 
-  // **FIX**: Add handler to read the full story
   const handleReadFullStory = useCallback(() => {
     cancel();
-    setFlowState('SPEAKING'); // Set state to show something is happening
+    setFlowState('SPEAKING');
     speak(story.text, () => {
-      setFlowState('INITIAL'); // Reset when done
+      setFlowState('INITIAL');
     }, false, voice);
   }, [story.text, speak, cancel, voice]);
 
   const handleWordClickForPhonemes = async (word: string) => {
     if (readingMode !== ReadingMode.PHONEME || isSpeaking || isLoadingPhonemes) return;
     
-    // Reset previous animation state
     setHighlightedPhonemeIndex(null);
-    cancel(); // Cancel any ongoing speech
+    cancel();
 
     setIsLoadingPhonemes(true);
     setPhonemeData({word, phonemes: ['...']});
@@ -211,15 +225,12 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice    }) 
       const phonemes = await getPhonemesForWord(word);
       setPhonemeData({word, phonemes});
       
-      // Speak the word slowly and get its duration for the animation
       const duration = await speak(word, () => {
-        // Callback when audio finishes
         setHighlightedPhonemeIndex(null);
-      }, true, voice); // The 'true' flag requests slow audio
+      }, true, voice);
       
-      // Animate the phoneme highlights based on the audio duration
       if (duration > 0 && phonemes.length > 0) {
-        const timePerPhoneme = (duration * 1000) / phonemes.length; // Duration in milliseconds
+        const timePerPhoneme = (duration * 1000) / phonemes.length;
         
         for (let i = 0; i < phonemes.length; i++) {
           setTimeout(() => {
@@ -259,11 +270,30 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice    }) 
     });
   };
 
+  const handleQuizComplete = useCallback((results: Omit<QuizResult, 'date'>) => {
+    const newQuizResults: QuizResult = {
+      ...results,
+      date: new Date().toISOString(),
+    };
+    
+    const updatedStory = { ...currentStory, quizResults: newQuizResults };
+    setCurrentStory(updatedStory);
+
+    const savedStories: Story[] = JSON.parse(localStorage.getItem('savedStories') || '[]');
+    const newSavedStories = savedStories.map(s => s.id === updatedStory.id ? updatedStory : s);
+    localStorage.setItem('savedStories', JSON.stringify(newSavedStories));
+  }, [currentStory]);
+
   return (
     <div className="flex flex-col gap-4 w-full animate-fade-in">
-        {isQuizVisible && <QuizModal questions={story.quiz} onClose={() => setIsQuizVisible(false)} voice={voice} />}
+        {isQuizVisible && <QuizModal questions={story.quiz} onClose={() => setIsQuizVisible(false)} onQuizComplete={handleQuizComplete} voice={voice} isSpeaking={isSpeaking} />}
         <div className="bg-white p-6 rounded-3xl shadow-xl">
-            <h2 className="text-4xl font-black text-center text-blue-600 mb-4 cursor-pointer" onClick={() => speak(story.title, undefined, false, voice)}>{story.title}</h2>
+            <h2 
+              className={`text-4xl font-black text-center text-blue-600 mb-4 ${isSpeaking ? 'cursor-not-allowed' : 'cursor-pointer'}`} 
+              onClick={() => !isSpeaking && speak(story.title, undefined, false, voice)}
+            >
+              {story.title}
+            </h2>
             <img src={story.illustration} alt="Story illustration" className="w-full h-auto max-h-96 object-contain rounded-2xl mb-6"/>
             
             <div className="text-3xl leading-relaxed text-slate-700 space-y-4 mb-8">
@@ -284,7 +314,6 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice    }) 
                 <div className="my-4 p-4 bg-blue-100 rounded-lg text-center">
                     <p className="text-xl font-bold">{phonemeData.word}</p>
                     <p className="text-3xl font-bold tracking-widest text-blue-700">
-                        {/* **FIX**: Render phonemes with dynamic highlighting */}
                         {phonemeData.phonemes.map((phoneme, index) => (
                           <React.Fragment key={index}>
                             <span className={`p-1 rounded-md transition-colors duration-150 ${highlightedPhonemeIndex === index ? 'bg-yellow-300' : ''}`}>

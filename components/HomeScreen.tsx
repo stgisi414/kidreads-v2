@@ -1,11 +1,12 @@
 // stgisi414/kidreads-v2/kidreads-v2-5096bbab39cec5b36bff0af2170f45b4a523b759/components/HomeScreen.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Spinner from './Spinner';
 import Icon from './Icon';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
 import { transcribeAudio } from '../services/geminiService';
 import SavedStoriesModal from './SavedStoriesModal';
 import type { Story } from '../types';
+import { useTextToSpeech } from '../hooks/useTextToSpeech';
 
 type HomeScreenProps = {
   onCreateStory: (topic: string) => void;
@@ -22,11 +23,30 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ onCreateStory, onLoadStory, isL
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isStoriesModalVisible, setStoriesModalVisible] = useState(false);
   const [savedStories, setSavedStories] = useState<Story[]>([]);
+  const { speak, isLoading: isSpeakingLoading } = useTextToSpeech();
+  const [instructionAudio, setInstructionAudio] = useState<HTMLAudioElement | null>(null);
+
+  const instructionsHtml = `Press the <span class="font-semibold text-blue-600">button</span> and say something like <br />
+    <span class="font-semibold text-amber-600">"a happy little dog"</span> or <span class="font-semibold text-emerald-600">"a cat flying to the moon"</span>. <br />
+    Press the <span class="font-semibold text-red-600">checkmark</span> when you're done!`;
+    
+  const instructionsText = "Press the button and say something like 'a happy little dog' or 'a cat flying to the moon'. Press the checkmark when you're done!";
 
   useEffect(() => {
     const stories = JSON.parse(localStorage.getItem('savedStories') || '[]');
     setSavedStories(stories);
   }, []);
+
+  const handleReadInstructions = useCallback(async () => {
+    if (instructionAudio) {
+      instructionAudio.play();
+    } else {
+      const audio = await speak(instructionsText, undefined, false, voice);
+      if (audio) {
+        setInstructionAudio(new Audio(audio as unknown as string));
+      }
+    }
+  }, [instructionAudio, instructionsText, speak, voice]);
 
   const handleDeleteStory = (storyId: number) => {
     const updatedStories = savedStories.filter(story => story.id !== storyId);
@@ -104,24 +124,28 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ onCreateStory, onLoadStory, isL
 
       <div className="mb-10 space-y-4">
         <h2 className="text-3xl font-bold text-slate-800">What story should we read today?</h2>
-        <p className="text-lg text-slate-500">
-          Press the button and say something like <br />
-          <span className="font-semibold text-amber-600">"a happy little dog"</span> or <span className="font-semibold text-emerald-600">"a cat flying to the moon"</span>.
-        </p>
+        <div className="flex items-center justify-center gap-2">
+          <p
+            className="text-lg text-slate-500"
+            dangerouslySetInnerHTML={{ __html: isListening ? 'Now press the <span class="font-semibold text-red-600">checkmark</span> when you\'re done speaking!' : instructionsHtml }}
+          />
+          {!isListening && (
+            <button onClick={handleReadInstructions} disabled={isSpeakingLoading} className="p-2 rounded-full hover:bg-slate-200 transition">
+              <Icon name="microphone" className="w-6 h-6 text-blue-500" />
+            </button>
+          )}
+        </div>
       </div>
 
       <button
         onClick={handleMicClick}
         disabled={permissionError}
-        className={`relative flex items-center justify-center w-40 h-40 rounded-full transition-all duration-300 ease-in-out focus:outline-none focus:ring-4 focus:ring-blue-300
+        className={`flex items-center justify-center w-40 h-40 rounded-full transition-all duration-300 ease-in-out focus:outline-none focus:ring-4 focus:ring-blue-300
                     ${isListening 
                       ? 'bg-red-500 text-white animate-pulse-strong shadow-2xl' 
                       : 'bg-blue-500 hover:bg-blue-600 text-white shadow-xl'}`}
       >
         <Icon name={isListening ? "check" : "microphone"} className="w-20 h-20" />
-        {isListening && (
-            <span className="absolute top-full mt-4 text-lg font-semibold text-red-600 w-max">Click the checkmark when you're done!</span>
-        )}
       </button>
 
       <button onClick={() => setStoriesModalVisible(true)} className="mt-8 px-6 py-3 bg-purple-500 text-white rounded-full font-bold text-lg hover:bg-purple-600 transition-transform hover:scale-105 shadow-lg">

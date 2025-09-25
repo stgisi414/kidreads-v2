@@ -11,6 +11,12 @@ export type QuizQuestion = {
   answer: string;
 };
 
+export type QuizResult = {
+  score: number;
+  date: string;
+  answers: { question: string; selected: string; correct: string }[];
+};
+
 export type Story = {
   id: number;
   title: string;
@@ -20,4 +26,5 @@ export type Story = {
   words: string[];
   phonemes: Record<string, string[]>;
   quiz: QuizQuestion[];
+  quizResults?: QuizResult;
 };

@@ -5,6 +5,7 @@ import { Response as ExpressResponse } from "express";
 import * as logger from "firebase-functions/logger";
 import cors from "cors";
 import { SpeechClient } from "@google-cloud/speech";
+import { TextToSpeechClient } from "@google-cloud/text-to-speech";
 
 // Define the list of allowed websites
 const allowedOrigins = [
@@ -15,17 +16,19 @@ const allowedOrigins = [
 
 const corsHandler = cors({ origin: allowedOrigins });
 const speechClient = new SpeechClient();
+const textToSpeechClient = new TextToSpeechClient();
 
 const STORY_AND_PROMPT_SYSTEM_INSTRUCTION = `You are a creative storyteller and an expert in writing prompts for image generation models.
 Based on the user's topic, you will generate four things in a single JSON object:
 1.  A creative and short title for the story.
-2.  A short, simple, and positive story (2-4 sentences) for a young child.
+2.  A short, simple, and positive story (2-4 sentences) for a young child that is directly about the user's topic.
     - FORBIDDEN THEMES: violence, death, scary monsters, sadness, complex topics.
     - Focus on friendship, animals, nature, and joy.
     - Do not use complex words or sentence structures.
-3.  A concise and descriptive prompt for a colorful, simple, and friendly cartoon illustration that matches the story.
+3.  A very descriptive and detailed prompt for a colorful, simple, and friendly cartoon illustration that visually represents the story.
     - The style should be like a children's book illustration, with soft edges and a happy mood.
-    - Do not include any of the original text from the story in your prompt. Focus on the visual elements.
+    - Crucially, the prompt must include the main characters, the setting, and the key objects or actions mentioned in the story text.
+    - Do not include any of the original text from the story in your prompt. Focus only on describing the visual scene.
 4.  A short quiz with 3 multiple-choice questions based on the story, suitable for K-3 students and grounded in Bloom's Taxonomy. Each question should have a "question" text, an array of "options", and the "answer".
 
 Your response MUST be a valid JSON object with the following structure:
@@ -63,8 +66,8 @@ export const generateStoryAndIllustration = onRequest(
           contents: [{ parts: [{ text: `Topic: ${topic}` }] }],
           system_instruction: { parts: [{ text: STORY_AND_PROMPT_SYSTEM_INSTRUCTION }] },
           generationConfig: {
-            temperature: 0.8,
-            maxOutputTokens: 2048, // **FIX**: Increased tokens for the quiz
+            temperature: 0.4,
+            maxOutputTokens: 2048,
             responseMimeType: "application/json",
            },
         };
@@ -110,7 +113,7 @@ export const generateStoryAndIllustration = onRequest(
         const imageApiRequest = {
           instances: [{
             prompt: imagePrompt,
-            negativePrompt: "text, words, letters, writing, captions, headlines, titles, signs, numbers, fonts, don't write anything at all it's just an illustration",
+            negativePrompt: "text, words, letters, writing, captions, headlines, titles, signs, numbers, fonts",
           }],
           parameters: { sampleCount: 1, aspectRatio: "16:9", mimeType: "image/jpeg" },
         };
@@ -207,8 +210,7 @@ export const geminiTTS = onRequest(
       if (request.method !== "POST") {
         return response.status(405).send("Method Not Allowed");
       }
-      // **FIX**: Destructure the new 'slow' and 'voice' parameters from the request body
-      const { text, slow, voice } = request.body;
+      const { text, slow, voice, isWord } = request.body;
       if (!text) {
         return response.status(400).send("Bad Request: Missing text");
       }
@@ -219,10 +221,12 @@ export const geminiTTS = onRequest(
       try {
         const ttsUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${GEMINI_API_KEY}`;
         
-        // **FIX**: Conditionally wrap the text in SSML for slowed speech
-        const speechText = slow 
-          ? `<speak><prosody rate="slow">${text}</prosody></speak>`
-          : `<speak>${text}</speak>`;
+        let speechText = `<speak>${text}</speak>`;
+        if (slow) {
+          speechText = `<speak><prosody rate="slow">${text}</prosody></speak>`;
+        } else if (isWord) {
+          speechText = `<speak><break time="250ms"/>${text}</speak>`;
+        }
 
         const payload = {
           "model": "gemini-2.5-flash-preview-tts",
@@ -255,6 +259,49 @@ export const geminiTTS = onRequest(
         }
       } catch (error: any) {
         logger.error(`Error generating TTS for text "${text}":`, error.message);
+        return response.status(500).send("Failed to generate audio.");
+      }
+    });
+  },
+);
+
+export const googleCloudTTS = onRequest(
+  { region: "us-central1" },
+  (request: FunctionsRequest, response: ExpressResponse) => {
+    corsHandler(request, response, async () => {
+      if (request.method !== "POST") {
+        return response.status(405).send("Method Not Allowed");
+      }
+
+      const { text, voice, isWord } = request.body;
+      if (!text) {
+        return response.status(400).send("Bad Request: Missing text");
+      }
+
+      // Map app voice names to Google Cloud voice names
+      const googleVoice = voice === 'Leda'
+        ? { languageCode: 'en-US', name: 'en-US-Studio-O' } // Female Studio Voice
+        : { languageCode: 'en-US', name: 'en-US-Studio-M' }; // Male Studio Voice
+
+      const ssml = isWord
+        ? `<speak><break time="250ms"/>${text}</speak>`
+        : `<speak>${text}</speak>`;
+
+      try {
+        const [ttsResponse] = await textToSpeechClient.synthesizeSpeech({
+          input: { ssml },
+          voice: googleVoice,
+          audioConfig: { audioEncoding: 'MP3' },
+        });
+
+        if (ttsResponse.audioContent) {
+          const audioContent = Buffer.from(ttsResponse.audioContent).toString('base64');
+          return response.status(200).send({ audioContent });
+        } else {
+          throw new Error("No audio data received from Google Cloud TTS API.");
+        }
+      } catch (error: any) {
+        logger.error(`Error generating Google Cloud TTS for text "${text}":`, error.message);
         return response.status(500).send("Failed to generate audio.");
       }
     });

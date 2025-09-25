@@ -1,3 +1,4 @@
+// stgisi414/kidreads-v2/kidreads-v2-5096bbab39cec5b36bff0af2170f45b4a523b759/services/geminiService.ts
 // services/geminiService.ts
 
 const getFunctionUrl = (name: string) => {
@@ -18,9 +19,9 @@ async function callFirebaseFunction(functionName: string, bodyData: any) {
   });
 
   if (!response.ok) {
-    const errorText = await response.text();
-    console.error(`Error from ${functionName}:`, errorText);
-    throw new Error(`Failed to call function ${functionName}`);
+    const error: any = new Error(`Error from ${functionName}: ${await response.text()}`);
+    error.status = response.status;
+    throw error;
   }
 
   return response.json();
@@ -34,8 +35,19 @@ export const getPhonemesForWord = (word: string) => {
   return callFirebaseFunction("getPhonemesForWord", { word });
 };
 
-export const getTextToSpeechAudio = (text: string, slow: boolean = false, voice: string): Promise<{ audioContent: string }> => {
-    return callFirebaseFunction("geminiTTS", { text, slow, voice });
+export const getTextToSpeechAudio = async (text: string, slow: boolean = false, voice: string, isWord: boolean = false): Promise<{ audioContent: string }> => {
+  try {
+    // First, try the Gemini TTS function
+    return await callFirebaseFunction("geminiTTS", { text, slow, voice, isWord });
+  } catch (error: any) {
+    // If it's a rate limit error (429), use the Google Cloud TTS fallback
+    if (error.status === 429) {
+      console.warn("Gemini TTS rate limit reached. Using Google Cloud TTS fallback.");
+      return callFirebaseFunction("googleCloudTTS", { text, slow, voice, isWord });
+    }
+    // For any other kind of error, re-throw it
+    throw error;
+  }
 };
 
 export const transcribeAudio = (audio: string): Promise<{ transcription?: string }> => {
