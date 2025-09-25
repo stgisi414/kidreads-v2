@@ -3,7 +3,7 @@ import type { Story, QuizResult } from '../types';
 import { ReadingMode } from '../types';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
 import Icon from './Icon';
-import { getPhonemesForWord, transcribeAudio, getTimedTranscript } from '../services/geminiService';
+import { getPhonemesForWord, transcribeAudio, getTimedTranscript, checkWordMatch } from '../services/geminiService';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
 import QuizModal from './QuizModal';
 
@@ -57,6 +57,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
   const [isStorySaved, setIsStorySaved] = useState(false);
   const [flowState, setFlowState] = useState<FlowState>('INITIAL');
   const [currentStory, setCurrentStory] = useState<Story>(story);
+  const [incorrectAttempts, setIncorrectAttempts] = useState(0);
   
   const [isReadingFullStory, setIsReadingFullStory] = useState(false);
   const [fullStoryHighlightIndex, setFullStoryHighlightIndex] = useState(-1);
@@ -98,13 +99,15 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
 
   useEffect(() => {
     if (flowState === 'FINISHED') {
-      speak("You finished the story! Great job!", undefined, false, voice);
+      speak("You finished the story! Great job!", () => {
+        setFlowState('INITIAL');
+        setCurrentSentenceIndex(0);
+        setCurrentWordIndex(0);
+      }, false, voice);
     }
   }, [flowState, speak, voice]);
 
   const readAloud = useCallback(() => {
-    if (flowState !== 'IDLE' && flowState !== 'EVALUATING') return;
-
     let textToRead = '';
     let isWord = false;
     if (readingMode === ReadingMode.WORD) {
@@ -115,12 +118,17 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
     }
     
     setFlowState('SPEAKING');
-    speak(textToRead, () => {
-        startRecording();
-        setFlowState('LISTENING');
-    }, false, voice, isWord);
+    try {
+      speak(textToRead, () => {
+          startRecording();
+          setFlowState('LISTENING');
+      }, false, voice, isWord);
+    } catch (error) {
+      console.error("TTS failed, attempting to continue:", error);
+      setFlowState('IDLE');
+    }
 
-  }, [readingMode, currentSentenceIndex, currentWordIndex, story, speak, startRecording, flowState, voice]);
+  }, [readingMode, currentSentenceIndex, currentWordIndex, story, speak, startRecording, voice]);
 
   const handleUserSpeechEnd = useCallback(async () => {
     if (recorderState.status !== 'recording') return;
@@ -130,67 +138,93 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
     
     if (audioBase64) {
       try {
-        const { transcription } = await transcribeAudio(audioBase64);
-        let expectedText = '';
-        if (readingMode === ReadingMode.WORD) {
-            expectedText = story.words[currentWordIndex];
-        } else if (readingMode === ReadingMode.SENTENCE) {
-            expectedText = story.sentences[currentSentenceIndex];
+        let isMatch = false;
+
+        // Use local similarity check for sentences
+        if (readingMode === ReadingMode.SENTENCE) {
+            const { transcription } = await transcribeAudio(audioBase64);
+            const expectedText = story.sentences[currentSentenceIndex];
+            const similarity = calculateSimilarity(normalizeText(transcription || ""), normalizeText(expectedText));
+            isMatch = similarity >= 65;
+        } else { // Use cloud function for smarter, phonetic word check
+            const { transcription } = await transcribeAudio(audioBase64);
+            if (!transcription) {
+              throw new Error("Transcription resulted in empty text.");
+            }
+            const expectedWord = story.words[currentWordIndex];
+            const { isMatch: wordIsMatch } = await checkWordMatch(transcription, expectedWord);
+            isMatch = wordIsMatch;
         }
         
-        const similarity = calculateSimilarity(normalizeText(transcription || ""), normalizeText(expectedText));
-        
         setFlowState('EVALUATING');
-        if (similarity >= 65) {
+        if (isMatch) {
             setFeedback('correct');
-            speak("Great Job!", undefined, false, voice);
-            setTimeout(() => {
-                setFeedback(null);
-                if (readingMode === ReadingMode.WORD) {
+            setIncorrectAttempts(0); // Reset on correct answer
+            try {
+              speak("Great Job!", () => {
+                  setFeedback(null);
+                  if (readingMode === ReadingMode.WORD) {
+                      if (currentWordIndex < story.words.length - 1) {
+                          setCurrentWordIndex(prev => prev + 1);
+                          setFlowState('IDLE');
+                      } else {
+                          setFlowState('FINISHED');
+                      }
+                  } else { // SENTENCE mode
+                       if (currentSentenceIndex < story.sentences.length - 1) {
+                           setCurrentSentenceIndex(prev => prev + 1);
+                           setFlowState('IDLE');
+                       } else {
+                           setFlowState('FINISHED');
+                       }
+                  }
+              }, false, voice);
+            } catch (error) {
+              console.error("TTS failed, attempting to continue:", error);
+              setFlowState('IDLE');
+            }
+        } else {
+            const newAttemptCount = incorrectAttempts + 1;
+            setIncorrectAttempts(newAttemptCount);
+            setFeedback('incorrect');
+
+            if (newAttemptCount >= 3 && readingMode === ReadingMode.WORD) { // Only skip for word mode
+                speak("That was a tricky one, let's move to the next word.", () => {
+                    setFeedback(null);
+                    setIncorrectAttempts(0); // Reset for the next word
                     if (currentWordIndex < story.words.length - 1) {
                         setCurrentWordIndex(prev => prev + 1);
                         setFlowState('IDLE');
                     } else {
                         setFlowState('FINISHED');
                     }
-                } else {
-                     if (currentSentenceIndex < story.sentences.length - 1) {
-                         setCurrentSentenceIndex(prev => prev + 1);
-                        setFlowState('IDLE');
-                     } else {
-                         setFlowState('FINISHED');
-                     }
-                }
-            }, 2500); // Increased pause to 2.5 seconds
-        } else {
-            setFeedback('incorrect');
-            speak("Let's try again!", undefined, false, voice);
-            setTimeout(() => {
-              setFeedback(null);
-              setFlowState('IDLE');
-            }, 2000);
+                }, false, voice);
+            } else {
+                speak("Let's try again!", () => {
+                  setFeedback(null);
+                  setFlowState('IDLE');
+                }, false, voice);
+            }
         }
       } catch (e) {
-        console.error("Transcription failed", e);
+        console.error("Word/Sentence matching failed", e);
         setFlowState('EVALUATING');
         setFeedback('incorrect');
-        speak("Let's try again!", undefined, false, voice);
-         setTimeout(() => {
-              setFeedback(null);
-              setFlowState('IDLE');
-            }, 2000);
+        speak("Let's try again!", () => {
+            setFeedback(null);
+            setFlowState('IDLE');
+        }, false, voice);
       }
     } else {
        setFlowState('IDLE');
     }
-  }, [recorderState, stopRecording, readingMode, currentSentenceIndex, currentWordIndex, story, voice, speak]);
+  }, [recorderState, stopRecording, readingMode, currentSentenceIndex, currentWordIndex, story, voice, speak, incorrectAttempts]);
 
   useEffect(() => {
-    if (flowState === 'IDLE' && readingMode !== 'Phoneme' && readingMode !== 'Quiz') {
+    if (flowState === 'IDLE' && (readingMode === ReadingMode.WORD || readingMode === ReadingMode.SENTENCE)) {
         readAloud();
     }
-  }, [flowState, readingMode, readAloud]);
-
+  }, [flowState, readingMode, currentWordIndex, currentSentenceIndex, readAloud]);
 
   const handleStartReading = () => {
     setCurrentSentenceIndex(0);
@@ -226,13 +260,19 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
         setIsReadingFullStory(false);
         setFullStoryHighlightIndex(-1);
         if (preReadState) {
-            setFlowState(preReadState.flowState);
+            // Restore position but reset the flow to require user action
+            setFlowState('INITIAL'); 
             setCurrentSentenceIndex(preReadState.currentSentenceIndex);
             setCurrentWordIndex(preReadState.currentWordIndex);
+        } else {
+            // If there was no pre-read state, just go back to the beginning
+            setFlowState('INITIAL');
+            setCurrentSentenceIndex(0);
+            setCurrentWordIndex(0);
         }
     };
 
-    const { duration, audioContent } = await speak(story.text, onEnd, false, voice, false);
+    const { duration, audioContent, play } = await speak(story.text, onEnd, false, voice, false, false);
 
     const fallbackToEstimation = () => {
         if (readingMode === ReadingMode.SENTENCE) {
@@ -256,33 +296,35 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
 
     if (duration > 0 && audioContent) {
         try {
-            const { transcript } = await getTimedTranscript(audioContent);
-            if (transcript) {
+            console.log("Requesting timed transcript...");
+            const { transcript } = await getTimedTranscript(audioContent, story.text);
+            console.log("Received transcript:", transcript);
+
+            if (play) {
+                play();
+            }
+
+            if (transcript && Array.isArray(transcript)) {
+                console.log("Processing transcript...");
                 let searchFromIndex = 0;
-                const transcriptLines = transcript.split('\n');
-                const lineRegex = /(\d{2}):(\d{2}):(\d{2}\.\d{3})\s*-->.*? ([\w'-]+)/;
+                transcript.forEach(item => {
+                    const { word, startTime } = item;
+                    const startTimeMs = parseFloat(startTime) * 1000;
 
-                transcriptLines.forEach(line => {
-                    const match = line.match(lineRegex);
-                    if (match) {
-                        const [, hours, minutes, seconds, word] = match;
-                        const startTimeMs = (parseInt(hours, 10) * 3600 + parseInt(minutes, 10) * 60 + parseFloat(seconds)) * 1000;
-                        
-                        const wordIndex = story.words.findIndex(
-                            (storyWord, index) => index >= searchFromIndex && normalizeText(storyWord) === normalizeText(word)
-                        );
+                    const wordIndex = story.words.findIndex(
+                        (storyWord, index) => index >= searchFromIndex && normalizeText(storyWord) === normalizeText(word)
+                    );
 
-                        if (wordIndex !== -1) {
-                            const timeout = setTimeout(() => {
-                                if (readingMode === ReadingMode.SENTENCE) {
-                                    setFullStoryHighlightIndex(wordToSentenceMap[wordIndex]);
-                                } else {
-                                    setFullStoryHighlightIndex(wordIndex);
-                                }
-                            }, startTimeMs);
-                            fullStoryTimeoutRef.current.push(timeout);
-                            searchFromIndex = wordIndex + 1; 
-                        }
+                    if (wordIndex !== -1) {
+                        const timeout = setTimeout(() => {
+                            if (readingMode === ReadingMode.SENTENCE) {
+                                setFullStoryHighlightIndex(wordToSentenceMap[wordIndex]);
+                            } else {
+                                setFullStoryHighlightIndex(wordIndex);
+                            }
+                        }, startTimeMs);
+                        fullStoryTimeoutRef.current.push(timeout);
+                        searchFromIndex = wordIndex + 1;
                     }
                 });
             } else {

@@ -10,28 +10,35 @@ const getFunctionUrl = (name: string) => {
 
 async function callFirebaseFunction(functionName: string, bodyData: any) {
   const url = getFunctionUrl(functionName);
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(bodyData),
-    });
+  let lastError: any = null;
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`Error from ${functionName} (status ${response.status}):`, errorText);
-      const error: any = new Error(`Failed to call function ${functionName}`);
-      error.status = response.status;
-      throw error;
+  for (let i = 0; i < 3; i++) {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(bodyData),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`Error from ${functionName} (status ${response.status}):`, errorText);
+        const error: any = new Error(`Failed to call function ${functionName}`);
+        error.status = response.status;
+        throw error;
+      }
+
+      return response.json();
+    } catch (error) {
+      console.error(`Attempt ${i + 1} failed for ${functionName}:`, error);
+      lastError = error;
     }
-
-    return response.json();
-  } catch (error) {
-    console.error(`Network error or failure to fetch from ${functionName}:`, error);
-    throw error;
   }
+  
+  console.error(`All retry attempts failed for ${functionName}.`);
+  throw lastError;
 }
 
 export const generateStoryAndIllustration = (topic: string) => {
@@ -61,6 +68,10 @@ export const transcribeAudio = (audio: string): Promise<{ transcription?: string
     return callFirebaseFunction("transcribeAudio", { audio });
 };
 
-export const getTimedTranscript = (audio: string): Promise<{ transcript?: string }> => {
-  return callFirebaseFunction("getTimedTranscript", { audio });
+export const getTimedTranscript = (audio: string, text: string): Promise<{ transcript?: any[] }> => {
+  return callFirebaseFunction("getTimedTranscript", { audio, text });
+};
+
+export const checkWordMatch = (transcribedWord: string, expectedWord: string): Promise<{ isMatch: boolean }> => {
+    return callFirebaseFunction("checkWordMatch", { transcribedWord, expectedWord });
 };

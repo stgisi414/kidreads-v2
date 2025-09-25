@@ -73,7 +73,7 @@ export const useTextToSpeech = (): TextToSpeechHook => {
     setIsLoading(false);
   }, []);
 
-  const speak = useCallback(async (text: string, onEnd?: () => void, slow: boolean = false, voice: string = 'Leda', isWord: boolean = false, onBoundary?: (e: any) => void): Promise<{duration: number, audioContent: string | null}> => {
+  const speak = useCallback(async (text: string, onEnd?: () => void, slow: boolean = false, voice: string = 'Leda', isWord: boolean = false, autoPlay: boolean = true): Promise<{duration: number, audioContent: string | null, audioUrl?: string, play?: () => void}> => {
     if (isSpeaking || isLoading) {
       return { duration: 0, audioContent: null };
     }
@@ -89,20 +89,31 @@ export const useTextToSpeech = (): TextToSpeechHook => {
       const pcmData = base64ToArrayBuffer(audioContent);
       const pcm16 = new Int16Array(pcmData);
       const wavBlob = pcmToWav(pcm16, 24000);
+      
+      const reader = new FileReader();
+      reader.readAsDataURL(wavBlob);
+      const wavBase64 = await new Promise<string>((resolve) => {
+        reader.onloadend = () => {
+          resolve(reader.result!.toString().split(',')[1]);
+        };
+      });
+
+
       const audioUrl = URL.createObjectURL(wavBlob);
       
       const audio = new Audio(audioUrl);
       audioRef.current = audio;
 
-      if (onBoundary) {
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.volume = 0; // Mute the browser's voice
-        utterance.onboundary = onBoundary;
-        window.speechSynthesis.speak(utterance);
-      }
-
       return new Promise((resolve) => {
-        audio.onloadedmetadata = () => resolve({ duration: audio.duration, audioContent });
+        const play = () => {
+            audio.play();
+        }
+        audio.onloadedmetadata = () => {
+            if (autoPlay) {
+                play();
+            }
+            resolve({ duration: audio.duration, audioContent: wavBase64, audioUrl, play });
+        };
         audio.onplay = () => setIsSpeaking(true);
         audio.onended = () => {
           setIsSpeaking(false);
@@ -120,7 +131,6 @@ export const useTextToSpeech = (): TextToSpeechHook => {
           window.speechSynthesis.cancel();
           resolve({ duration: 0, audioContent: null });
         };
-        audio.play();
       });
 
     } catch (error) {

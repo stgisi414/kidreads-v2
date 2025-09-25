@@ -351,9 +351,9 @@ export const getTimedTranscript = onRequest(
     { secrets: ["API_KEY"], maxInstances: 10, region: "us-central1" },
     async (request, response) => {
       corsHandler(request, response, async () => {
-        const { audio } = request.body;
-        if (!audio) {
-          response.status(400).send({ error: "Audio data is required." });
+        const { audio, text } = request.body;
+        if (!audio || !text) {
+          response.status(400).send({ error: "Audio data and story text are required." });
           return;
         }
   
@@ -367,13 +367,30 @@ export const getTimedTranscript = onRequest(
         try {
           const modelUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
   
+          const prompt = `Given the following story text, generate a timed transcript of the speech audio.
+The output MUST be a valid JSON array where each object contains "word", "startTime", and "endTime".
+The "startTime" and "endTime" should be in seconds with milliseconds (e.g., "0.260").
+The words in the transcript must exactly match the words in the provided story text.
+
+Story Text: "${text}"
+
+Example JSON output:
+[
+  {"word": "Barnaby", "startTime": "0.100", "endTime": "0.500"},
+  {"word": "the", "startTime": "0.500", "endTime": "0.750"},
+  {"word": "Bumblebee", "startTime": "0.750", "endTime": "1.420"}
+]`;
+
           const apiRequest = {
             contents: [{
               parts: [
                 { inline_data: { mime_type: 'audio/wav', data: audio } },
-                { text: "Generate a timed transcript of the speech. The output should be in the format `[start_time] --> [end_time] word` for each word, with each word on a new line. For example: `00:00:00.260 --> 00:00:00.510 once`" }
+                { text: prompt }
               ]
-            }]
+            }],
+            generationConfig: {
+                responseMimeType: "application/json",
+            }
           };
   
           const apiResponse = await fetch(modelUrl, {
@@ -396,11 +413,63 @@ export const getTimedTranscript = onRequest(
             throw new Error("Could not get transcript for the audio.");
           }
   
-          response.status(200).send({ transcript });
+          response.status(200).send({ transcript: JSON.parse(transcript) });
         } catch (error) {
           logger.error("Error in getTimedTranscript:", error);
           response.status(500).send({ error: "Could not get transcript for the audio." });
         }
       });
     }
-  );
+);
+
+export const checkWordMatch = onRequest(
+    { secrets: ["API_KEY"], maxInstances: 10, region: "us-central1" },
+    async (request, response) => {
+        corsHandler(request, response, async () => {
+            const { transcribedWord, expectedWord } = request.body;
+            if (!transcribedWord || !expectedWord) {
+                response.status(400).send({ error: "Transcribed word and expected word are required." });
+                return;
+            }
+
+            const GEMINI_API_KEY = process.env.API_KEY;
+            if (!GEMINI_API_KEY) {
+                logger.error("API_KEY not configured in environment.");
+                response.status(500).send({ error: "Internal Server Error: API key not found." });
+                return;
+            }
+
+            try {
+                const modelUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
+                const prompt = `Is the transcribed text "${transcribedWord}" a phonetic match for the expected word "${expectedWord}"? 
+                  Consider common transcription errors, like numbers for words (e.g., "2" for "to" or "8" for "ate"). 
+                  Respond with only "true" or "false".`;
+
+                const apiRequest = {
+                    contents: [{ parts: [{ text: prompt }] }]
+                };
+
+                const apiResponse = await fetch(modelUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(apiRequest),
+                });
+
+                if (!apiResponse.ok) {
+                    const errorText = await apiResponse.text();
+                    logger.error("Error from Gemini API:", errorText);
+                    throw new Error(`Gemini API failed with status ${apiResponse.status}`);
+                }
+
+                const data = await apiResponse.json();
+                const matchText = data.candidates?.[0]?.content?.parts?.[0]?.text.trim().toLowerCase();
+
+                response.status(200).send({ isMatch: matchText === 'true' });
+
+            } catch (error) {
+                logger.error("Error in checkWordMatch:", error);
+                response.status(500).send({ error: "Could not check word match." });
+            }
+        });
+    }
+);
