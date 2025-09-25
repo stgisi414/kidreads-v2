@@ -42,7 +42,7 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose }) => {
       } else {
         setShowResults(true);
       }
-    }, 2000);
+    }, 3500);
   };
 
   const handleRestart = () => {
