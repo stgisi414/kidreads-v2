@@ -6,7 +6,6 @@ import * as logger from "firebase-functions/logger";
 import cors from "cors";
 import { SpeechClient } from "@google-cloud/speech";
 import { TextToSpeechClient } from "@google-cloud/text-to-speech";
-import { GoogleAuth } from "google-auth-library";
 
 // Define the list of allowed websites
 const allowedOrigins = [
@@ -349,59 +348,59 @@ export const transcribeAudio = onRequest(
 );  
 
 export const getTimedTranscript = onRequest(
-  { secrets: ["API_KEY"], maxInstances: 10, region: "us-central1" },
-  async (request, response) => {
-    corsHandler(request, response, async () => {
-      const { audio } = request.body;
-      if (!audio) {
-        response.status(400).send({ error: "Audio data is required." });
-        return;
-      }
-
-      const GEMINI_API_KEY = process.env.API_KEY;
-      if (!GEMINI_API_KEY) {
-        logger.error("API_KEY not configured in environment.");
-        response.status(500).send({ error: "Internal Server Error: API key not found." });
-        return;
-      }
-
-      try {
-        const modelUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
-
-        const apiRequest = {
-          contents: [{
-            parts: [
-              { inline_data: { mime_type: 'audio/wav', data: audio } },
-              { text: "Generate a timed transcript of the speech. The output should be in the format `[start_time] --> [end_time] word` for each word, with each word on a new line. For example: `00:00:00.260 --> 00:00:00.510 once`" }
-            ]
-          }]
-        };
-
-        const apiResponse = await fetch(modelUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(apiRequest),
-        });
-
-
-        if (!apiResponse.ok) {
-          const errorText = await apiResponse.text();
-          logger.error("Error from Gemini API:", errorText);
-          throw new Error(`Gemini API failed with status ${apiResponse.status}`);
+    { secrets: ["API_KEY"], maxInstances: 10, region: "us-central1" },
+    async (request, response) => {
+      corsHandler(request, response, async () => {
+        const { audio } = request.body;
+        if (!audio) {
+          response.status(400).send({ error: "Audio data is required." });
+          return;
         }
-
-        const data = await apiResponse.json();
-        const transcript = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (!transcript) {
-          throw new Error("Could not get transcript for the audio.");
+  
+        const GEMINI_API_KEY = process.env.API_KEY;
+        if (!GEMINI_API_KEY) {
+          logger.error("API_KEY not configured in environment.");
+          response.status(500).send({ error: "Internal Server Error: API key not found." });
+          return;
         }
-
-        response.status(200).send({ transcript });
-      } catch (error) {
-        logger.error("Error in getTimedTranscript:", error);
-        response.status(500).send({ error: "Could not get transcript for the audio." });
-      }
-    });
-  }
-);
+  
+        try {
+          const modelUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
+  
+          const apiRequest = {
+            contents: [{
+              parts: [
+                { inline_data: { mime_type: 'audio/wav', data: audio } },
+                { text: "Generate a timed transcript of the speech. The output should be in the format `[start_time] --> [end_time] word` for each word, with each word on a new line. For example: `00:00:00.260 --> 00:00:00.510 once`" }
+              ]
+            }]
+          };
+  
+          const apiResponse = await fetch(modelUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(apiRequest),
+          });
+  
+  
+          if (!apiResponse.ok) {
+            const errorText = await apiResponse.text();
+            logger.error("Error from Gemini API:", errorText);
+            throw new Error(`Gemini API failed with status ${apiResponse.status}`);
+          }
+  
+          const data = await apiResponse.json();
+          const transcript = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  
+          if (!transcript) {
+            throw new Error("Could not get transcript for the audio.");
+          }
+  
+          response.status(200).send({ transcript });
+        } catch (error) {
+          logger.error("Error in getTimedTranscript:", error);
+          response.status(500).send({ error: "Could not get transcript for the audio." });
+        }
+      });
+    }
+  );
