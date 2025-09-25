@@ -51,7 +51,7 @@ const pcmToWav = (pcmData: Int16Array, sampleRate: number = 24000) => {
 
 
 interface TextToSpeechHook {
-  speak: (text: string, onEnd?: () => void, slow?: boolean) => Promise<number>;
+  speak: (text: string, onEnd?: () => void, slow?: boolean, voice?: string) => Promise<number>;
   cancel: () => void;
   isSpeaking: boolean;
   isLoading: boolean;
@@ -72,7 +72,7 @@ export const useTextToSpeech = (): TextToSpeechHook => {
     setIsLoading(false);
   }, []);
 
-  const speak = useCallback(async (text: string, onEnd?: () => void, slow: boolean = false): Promise<number> => {
+  const speak = useCallback(async (text: string, onEnd?: () => void, slow: boolean = false, voice: string = 'Leda'): Promise<number> => {
     if (isSpeaking || isLoading) {
       return 0;
     }
@@ -83,7 +83,7 @@ export const useTextToSpeech = (): TextToSpeechHook => {
     }
 
     try {
-      const { audioContent } = await getTextToSpeechAudio(text, slow);
+      const { audioContent } = await getTextToSpeechAudio(text, slow, voice);
       if (!audioContent) {
           throw new Error("No audio content received.");
       }

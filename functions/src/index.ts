@@ -207,8 +207,8 @@ export const geminiTTS = onRequest(
       if (request.method !== "POST") {
         return response.status(405).send("Method Not Allowed");
       }
-      // **FIX**: Destructure the new 'slow' parameter from the request body
-      const { text, slow } = request.body;
+      // **FIX**: Destructure the new 'slow' and 'voice' parameters from the request body
+      const { text, slow, voice } = request.body;
       if (!text) {
         return response.status(400).send("Bad Request: Missing text");
       }
@@ -231,7 +231,7 @@ export const geminiTTS = onRequest(
             "responseModalities": ["AUDIO"],
             "speechConfig": {
               "voiceConfig": {
-                "prebuiltVoiceConfig": { "voiceName": "Leda" },
+                "prebuiltVoiceConfig": { "voiceName": voice || "Leda" },
               },
             },
           },

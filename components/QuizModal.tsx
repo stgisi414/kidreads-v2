@@ -6,9 +6,10 @@ import { useTextToSpeech } from '../hooks/useTextToSpeech';
 type QuizModalProps = {
   questions: QuizQuestion[];
   onClose: () => void;
+  voice: string;
 };
 
-const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose }) => {
+const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, voice }) => {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
@@ -29,9 +30,9 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose }) => {
     setIsCorrect(correct);
     if (correct) {
       setScore(s => s + 1);
-      speak("That's right!");
+      speak("That's right!", undefined, false, voice);
     } else {
-      speak("Not quite, let's try the next one.");
+      speak("Not quite, let's try the next one.", undefined, false, voice);
     }
 
     setTimeout(() => {
@@ -58,12 +59,12 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose }) => {
     if (isCorrect !== null) return;
     setSelectedAnswer(option);
     cancel(); // Stop any other speech
-    speak(option);
+    speak(option, undefined, false, voice);
   };
 
   const handleReadQuestion = () => {
     cancel();
-    speak(currentQuestion.question);
+    speak(currentQuestion.question, undefined, false, voice);
   };
 
   const currentQuestion = questions[currentQuestionIndex];

@@ -34,8 +34,8 @@ export const getPhonemesForWord = (word: string) => {
   return callFirebaseFunction("getPhonemesForWord", { word });
 };
 
-export const getTextToSpeechAudio = (text: string, slow: boolean = false): Promise<{ audioContent: string }> => {
-    return callFirebaseFunction("geminiTTS", { text, slow });
+export const getTextToSpeechAudio = (text: string, slow: boolean = false, voice: string): Promise<{ audioContent: string }> => {
+    return callFirebaseFunction("geminiTTS", { text, slow, voice });
 };
 
 export const transcribeAudio = (audio: string): Promise<{ transcription?: string }> => {

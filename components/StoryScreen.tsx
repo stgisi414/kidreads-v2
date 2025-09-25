@@ -11,6 +11,7 @@ import QuizModal from './QuizModal';
 type StoryScreenProps = {
   story: Story;
   onGoHome: () => void;
+  voice: string;
 };
 
 type Feedback = 'correct' | 'incorrect' | null;
@@ -45,7 +46,7 @@ const calculateSimilarity = (str1: string, str2: string) => {
     return similarity;
 };
 
-const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome }) => {
+const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice    }) => {
   const [readingMode, setReadingMode] = useState<ReadingMode>(ReadingMode.SENTENCE);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
@@ -96,9 +97,9 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome }) => {
     speak(textToRead, () => {
         startRecording();
         setFlowState('LISTENING');
-    });
+    }, false, voice);
 
-  }, [readingMode, currentSentenceIndex, currentWordIndex, story, speak, startRecording, flowState]);
+  }, [readingMode, currentSentenceIndex, currentWordIndex, story, speak, startRecording, flowState, voice]);
 
   const handleUserSpeechEnd = useCallback(async () => {
     if (recorderState.status !== 'recording') return;
@@ -193,8 +194,8 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome }) => {
     setFlowState('SPEAKING'); // Set state to show something is happening
     speak(story.text, () => {
       setFlowState('INITIAL'); // Reset when done
-    });
-  }, [story.text, speak, cancel]);
+    }, false, voice);
+  }, [story.text, speak, cancel, voice]);
 
   const handleWordClickForPhonemes = async (word: string) => {
     if (readingMode !== ReadingMode.PHONEME || isSpeaking || isLoadingPhonemes) return;
@@ -214,7 +215,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome }) => {
       const duration = await speak(word, () => {
         // Callback when audio finishes
         setHighlightedPhonemeIndex(null);
-      }, true); // The 'true' flag requests slow audio
+      }, true, voice); // The 'true' flag requests slow audio
       
       // Animate the phoneme highlights based on the audio duration
       if (duration > 0 && phonemes.length > 0) {
@@ -260,9 +261,9 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome }) => {
 
   return (
     <div className="flex flex-col gap-4 w-full animate-fade-in">
-        {isQuizVisible && <QuizModal questions={story.quiz} onClose={() => setIsQuizVisible(false)} />}
+        {isQuizVisible && <QuizModal questions={story.quiz} onClose={() => setIsQuizVisible(false)} voice={voice} />}
         <div className="bg-white p-6 rounded-3xl shadow-xl">
-            <h2 className="text-4xl font-black text-center text-blue-600 mb-4 cursor-pointer" onClick={() => speak(story.title)}>{story.title}</h2>
+            <h2 className="text-4xl font-black text-center text-blue-600 mb-4 cursor-pointer" onClick={() => speak(story.title, undefined, false, voice)}>{story.title}</h2>
             <img src={story.illustration} alt="Story illustration" className="w-full h-auto max-h-96 object-contain rounded-2xl mb-6"/>
             
             <div className="text-3xl leading-relaxed text-slate-700 space-y-4 mb-8">

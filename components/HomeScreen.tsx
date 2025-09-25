@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react'; // **FIX**: Added useEffect import
+// stgisi414/kidreads-v2/kidreads-v2-5096bbab39cec5b36bff0af2170f45b4a523b759/components/HomeScreen.tsx
+import React, { useState, useEffect } from 'react';
 import Spinner from './Spinner';
 import Icon from './Icon';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
@@ -12,9 +13,11 @@ type HomeScreenProps = {
   isLoading: boolean;
   loadingMessage: string;
   error: string | null;
+  voice: string;
+  onVoiceChange: (voice: 'Leda' | 'Atlas') => void;
 };
 
-const HomeScreen: React.FC<HomeScreenProps> = ({ onCreateStory, onLoadStory, isLoading, loadingMessage, error }) => {
+const HomeScreen: React.FC<HomeScreenProps> = ({ onCreateStory, onLoadStory, isLoading, loadingMessage, error, voice, onVoiceChange }) => {
   const { recorderState, startRecording, stopRecording, permissionError } = useAudioRecorder();
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isStoriesModalVisible, setStoriesModalVisible] = useState(false);
@@ -68,6 +71,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ onCreateStory, onLoadStory, isL
           onLoadStory={onLoadStory}
           onDeleteStory={handleDeleteStory}
           onClose={() => setStoriesModalVisible(false)}
+          voice={voice}
         />
       )}
       <h1 className="text-6xl font-black text-blue-600 mb-2 flex items-center justify-center">
@@ -76,8 +80,28 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ onCreateStory, onLoadStory, isL
         </video>
         KidReads
       </h1>
-      <p className="text-2xl text-slate-600 mb-10">Your AI Reading Buddy!</p>
+      <p className="text-2xl text-slate-600 mb-6">Your AI Reading Buddy!</p>
       
+      <div className="mb-6">
+        <h3 className="text-xl font-bold text-slate-700 mb-2">Choose a Voice</h3>
+        <div className="flex justify-center gap-4">
+            <button 
+                onClick={() => onVoiceChange('Leda')}
+                className={`text-5xl p-3 rounded-full transition-all ${voice === 'Leda' ? 'bg-blue-200 ring-4 ring-blue-400' : 'hover:bg-slate-200'}`}
+                aria-label="Select female voice"
+            >
+                <span>👩</span>
+            </button>
+            <button
+                onClick={() => onVoiceChange('Atlas')}
+                className={`text-5xl p-3 rounded-full transition-all ${voice === 'Atlas' ? 'bg-blue-200 ring-4 ring-blue-400' : 'hover:bg-slate-200'}`}
+                aria-label="Select male voice"
+            >
+                <span>👨</span>
+            </button>
+        </div>
+      </div>
+
       <div className="mb-10 space-y-4">
         <h2 className="text-3xl font-bold text-slate-800">What story should we read today?</h2>
         <p className="text-lg text-slate-500">

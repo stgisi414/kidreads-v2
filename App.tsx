@@ -1,3 +1,4 @@
+// stgisi414/kidreads-v2/kidreads-v2-5096bbab39cec5b36bff0af2170f45b4a523b759/App.tsx
 import React, { useState, useCallback } from 'react';
 import type { Story } from './types';
 import HomeScreen from './components/HomeScreen';
@@ -13,6 +14,7 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [loadingMessage, setLoadingMessage] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
+  const [voice, setVoice] = useState('Leda'); // Leda (female) is the default
 
   const handleCreateStory = useCallback(async (topic: string) => {
     setIsLoading(true);
@@ -66,10 +68,12 @@ const App: React.FC = () => {
             isLoading={isLoading}
             loadingMessage={loadingMessage}
             error={error}
+            voice={voice}
+            onVoiceChange={setVoice}
           />
         )}
         {screen === 'story' && story && (
-          <StoryScreen story={story} onGoHome={handleGoHome} />
+          <StoryScreen story={story} onGoHome={handleGoHome} voice={voice} />
         )}
       </main>
     </div>
