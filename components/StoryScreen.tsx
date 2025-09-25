@@ -3,7 +3,7 @@ import type { Story, QuizResult } from '../types';
 import { ReadingMode } from '../types';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
 import Icon from './Icon';
-import { getPhonemesForWord, transcribeAudio } from '../services/geminiService';
+import { getPhonemesForWord, transcribeAudio, getTimedTranscript } from '../services/geminiService';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
 import QuizModal from './QuizModal';
 
@@ -235,30 +235,51 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
       }
     };
 
-    const duration = await speak(story.text, onEnd, false, voice, false);
+    const { duration, audioContent } = await speak(story.text, onEnd, false, voice, false);
 
-    if (duration > 0) {
-      if (readingMode === ReadingMode.SENTENCE) {
-        const sentences = story.sentences;
-        let cumulativeDelay = 0;
-        for (let i = 0; i < sentences.length; i++) {
-          const sentenceDuration = (sentences[i].length / story.text.length) * duration * 1000;
-          const timeout = setTimeout(() => {
-            setFullStoryHighlightIndex(i);
-          }, cumulativeDelay);
-          fullStoryTimeoutRef.current.push(timeout);
-          cumulativeDelay += sentenceDuration;
+    if (duration > 0 && audioContent) {
+        try {
+            const { transcript } = await getTimedTranscript(audioContent);
+            if (transcript) {
+                // Parse the transcript and set timeouts for highlighting
+                const lines = transcript.split('\n').filter(line => line.includes('-->'));
+                lines.forEach(line => {
+                    const parts = line.split(' --> ');
+                    const timeParts = parts[0].split(':');
+                    const startTime = parseInt(timeParts[0]) * 60 * 60 + parseInt(timeParts[1]) * 60 + parseFloat(timeParts[2]);
+                    const word = parts[1].trim();
+                    const wordIndex = story.words.findIndex(w => normalizeText(w) === normalizeText(word));
+
+                    if (wordIndex !== -1) {
+                        const timeout = setTimeout(() => {
+                            setFullStoryHighlightIndex(wordIndex);
+                        }, startTime * 1000);
+                        fullStoryTimeoutRef.current.push(timeout);
+                    }
+                });
+            } else {
+                // Fallback to the old method if transcript fails
+                const words = story.words;
+                const timePerWord = (duration * 1000) / words.length;
+                for (let i = 0; i < words.length; i++) {
+                    const timeout = setTimeout(() => {
+                        setFullStoryHighlightIndex(i);
+                    }, i * timePerWord);
+                    fullStoryTimeoutRef.current.push(timeout);
+                }
+            }
+        } catch (error) {
+            console.error("Error getting timed transcript:", error);
+            // Fallback to the old method
+            const words = story.words;
+            const timePerWord = (duration * 1000) / words.length;
+            for (let i = 0; i < words.length; i++) {
+                const timeout = setTimeout(() => {
+                    setFullStoryHighlightIndex(i);
+                }, i * timePerWord);
+                fullStoryTimeoutRef.current.push(timeout);
+            }
         }
-      } else { // Word and Phoneme mode
-        const words = story.words;
-        const timePerWord = (duration * 1000) / words.length;
-        for (let i = 0; i < words.length; i++) {
-          const timeout = setTimeout(() => {
-            setFullStoryHighlightIndex(i);
-          }, i * timePerWord);
-          fullStoryTimeoutRef.current.push(timeout);
-        }
-      }
     }
 
   }, [story, readingMode, voice, cancel, flowState, currentSentenceIndex, currentWordIndex, preReadState]);

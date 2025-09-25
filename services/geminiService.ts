@@ -60,3 +60,7 @@ export const getTextToSpeechAudio = async (text: string, slow: boolean = false, 
 export const transcribeAudio = (audio: string): Promise<{ transcription?: string }> => {
     return callFirebaseFunction("transcribeAudio", { audio });
 };
+
+export const getTimedTranscript = (audio: string): Promise<{ transcript?: string }> => {
+  return callFirebaseFunction("getTimedTranscript", { audio });
+};

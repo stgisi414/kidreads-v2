@@ -51,13 +51,13 @@ const pcmToWav = (pcmData: Int16Array, sampleRate: number = 24000) => {
 
 
 interface TextToSpeechHook {
-  speak: (text: string, onEnd?: () => void, slow?: boolean, voice?: string, isWord?: boolean) => Promise<number>;
+  speak: (text: string, onEnd?: () => void, slow?: boolean, voice?: string, isWord?: boolean) => Promise<{duration: number, audioContent: string | null}>;
   cancel: () => void;
   isSpeaking: boolean;
   isLoading: boolean;
 }
 
-export const useTextToSpeech = (): TextToToSpeechHook => {
+export const useTextToSpeech = (): TextToSpeechHook => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -73,9 +73,9 @@ export const useTextToSpeech = (): TextToToSpeechHook => {
     setIsLoading(false);
   }, []);
 
-  const speak = useCallback(async (text: string, onEnd?: () => void, slow: boolean = false, voice: string = 'Leda', isWord: boolean = false, onBoundary?: (e: any) => void): Promise<number> => {
+  const speak = useCallback(async (text: string, onEnd?: () => void, slow: boolean = false, voice: string = 'Leda', isWord: boolean = false, onBoundary?: (e: any) => void): Promise<{duration: number, audioContent: string | null}> => {
     if (isSpeaking || isLoading) {
-      return 0;
+      return { duration: 0, audioContent: null };
     }
 
     setIsLoading(true);
@@ -102,7 +102,7 @@ export const useTextToSpeech = (): TextToToSpeechHook => {
       }
 
       return new Promise((resolve) => {
-        audio.onloadedmetadata = () => resolve(audio.duration);
+        audio.onloadedmetadata = () => resolve({ duration: audio.duration, audioContent });
         audio.onplay = () => setIsSpeaking(true);
         audio.onended = () => {
           setIsSpeaking(false);
@@ -118,7 +118,7 @@ export const useTextToSpeech = (): TextToToSpeechHook => {
           URL.revokeObjectURL(audioUrl);
           audioRef.current = null;
           window.speechSynthesis.cancel();
-          resolve(0);
+          resolve({ duration: 0, audioContent: null });
         };
         audio.play();
       });
@@ -126,7 +126,7 @@ export const useTextToSpeech = (): TextToToSpeechHook => {
     } catch (error) {
       console.error("Error fetching or playing TTS audio:", error);
       setIsSpeaking(false);
-      return 0;
+      return { duration: 0, audioContent: null };
     } finally {
       setIsLoading(false);
     }
