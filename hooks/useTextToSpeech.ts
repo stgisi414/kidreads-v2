@@ -51,7 +51,7 @@ const pcmToWav = (pcmData: Int16Array, sampleRate: number = 24000) => {
 
 
 interface TextToSpeechHook {
-  speak: (text: string, onEnd?: () => void, slow?: boolean, voice?: string, isWord?: boolean) => Promise<number>;
+  speak: (text: string, onEnd?: () => void, slow?: boolean, voice?: string, isWord?: boolean, onBoundary?: (e: any) => void) => Promise<number>;
   cancel: () => void;
   isSpeaking: boolean;
   isLoading: boolean;
@@ -72,7 +72,7 @@ export const useTextToSpeech = (): TextToSpeechHook => {
     setIsLoading(false);
   }, []);
 
-  const speak = useCallback(async (text: string, onEnd?: () => void, slow: boolean = false, voice: string = 'Leda', isWord: boolean = false): Promise<number> => {
+  const speak = useCallback(async (text: string, onEnd?: () => void, slow: boolean = false, voice: string = 'Leda', isWord: boolean = false, onBoundary?: (e: any) => void): Promise<number> => {
     if (isSpeaking || isLoading) {
       return 0;
     }
@@ -94,6 +94,13 @@ export const useTextToSpeech = (): TextToSpeechHook => {
       
       const audio = new Audio(audioUrl);
       audioRef.current = audio;
+
+      if (onBoundary) {
+        // @ts-ignore
+        const speech = new SpeechSynthesisUtterance(text);
+        speech.onboundary = onBoundary;
+        window.speechSynthesis.speak(speech);
+      }
 
       return new Promise((resolve) => {
         audio.onloadedmetadata = () => {

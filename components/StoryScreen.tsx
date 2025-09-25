@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import type { Story, QuizResult } from '../types';
 import { ReadingMode } from '../types';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
@@ -57,7 +57,13 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
   const [isStorySaved, setIsStorySaved] = useState(false);
   const [flowState, setFlowState] = useState<FlowState>('INITIAL');
   const [currentStory, setCurrentStory] = useState<Story>(story);
-  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  
+  const [isReadingFullStory, setIsReadingFullStory] = useState(false);
+  const [fullStoryHighlightIndex, setFullStoryHighlightIndex] = useState(-1);
+  const [preReadState, setPreReadState] = useState<any>(null);
+
+  const { speak, cancel, isSpeaking } = useTextToSpeech();
+  const { recorderState, startRecording, stopRecording, permissionError } = useAudioRecorder();
 
   useEffect(() => {
     const savedStories: Story[] = JSON.parse(localStorage.getItem('savedStories') || '[]');
@@ -78,9 +84,6 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
     localStorage.setItem('savedStories', JSON.stringify(newSavedStories));
     setIsStorySaved(true);
   };
-
-  const { speak, cancel, isSpeaking } = useTextToSpeech();
-  const { recorderState, startRecording, stopRecording, permissionError } = useAudioRecorder();
 
   useEffect(() => {
     if (flowState === 'FINISHED') {
@@ -206,11 +209,69 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
 
   const handleReadFullStory = useCallback(() => {
     cancel();
+    
+    setPreReadState({
+      flowState,
+      currentSentenceIndex,
+      currentWordIndex,
+    });
+
     setFlowState('SPEAKING');
+    setIsReadingFullStory(true);
+    setFullStoryHighlightIndex(0);
+
+    let charIndex = 0;
+    const words = story.text.split(/\s+/);
+
     speak(story.text, () => {
-      setFlowState('INITIAL');
-    }, false, voice);
-  }, [story.text, speak, cancel, voice]);
+      // On end
+      setIsReadingFullStory(false);
+      setFullStoryHighlightIndex(-1);
+      if (preReadState) {
+        setFlowState(preReadState.flowState);
+        setCurrentSentenceIndex(preReadState.currentSentenceIndex);
+        setCurrentWordIndex(preReadState.currentWordIndex);
+      }
+    }, false, voice, false, (e) => {
+      if (readingMode === ReadingMode.SENTENCE) {
+        const sentenceEndBoundaries = story.sentences.reduce((acc, s, i) => {
+          const end = (acc.length > 0 ? acc[acc.length - 1] : 0) + s.length;
+          acc.push(end);
+          return acc;
+        }, [] as number[]);
+        const sentenceIndex = sentenceEndBoundaries.findIndex(end => e.charIndex < end);
+        setFullStoryHighlightIndex(sentenceIndex);
+      } else { // Word and Phoneme mode
+        const textSoFar = story.text.substring(0, e.charIndex);
+        const wordIndex = textSoFar.split(/\s+/).length - 1;
+        setFullStoryHighlightIndex(wordIndex);
+      }
+    });
+  }, [story, readingMode, voice, cancel, flowState, currentSentenceIndex, currentWordIndex, preReadState]);
+  
+  const getWordSpans = (sentence: string, sentenceIndex: number) => {
+    let globalWordIndexOffset = 0;
+    for(let i=0; i<sentenceIndex; i++) {
+        globalWordIndexOffset += story.sentences[i].split(/\s+/).filter(w => w).length;
+    }
+    
+    return sentence.split(/\s+/).map((word, localIndex) => {
+        const globalWordIndex = globalWordIndexOffset + localIndex;
+        const isCurrentWord = readingMode === ReadingMode.WORD && !isReadingFullStory && (globalWordIndex === currentWordIndex);
+        const isHighlightedForFullStory = isReadingFullStory && (readingMode === ReadingMode.WORD || readingMode === ReadingMode.PHONEME) && globalWordIndex === fullStoryHighlightIndex;
+
+        return (
+            <span key={`${sentenceIndex}-${localIndex}`} 
+                  onClick={() => handleWordClickForPhonemes(word)}
+                  className={`transition-all duration-200 p-1 rounded-md
+                    ${isCurrentWord || isHighlightedForFullStory ? 'bg-yellow-300' : ''}
+                    ${readingMode === ReadingMode.PHONEME ? 'hover:bg-blue-200 cursor-pointer' : ''}
+                  `}>
+                {word}{' '}
+            </span>
+        );
+    });
+  };
 
   const handleWordClickForPhonemes = async (word: string) => {
     if (readingMode !== ReadingMode.PHONEME || isSpeaking || isLoadingPhonemes) return;
@@ -246,29 +307,6 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
         setIsLoadingPhonemes(false);
     }
   };
-  
-  const getWordSpans = (sentence: string, sentenceIndex: number) => {
-     let globalWordIndex = 0;
-    for(let i=0; i<sentenceIndex; i++) {
-        globalWordIndex += story.sentences[i].split(/\s+/).filter(w => w).length;
-    }
-    
-    return sentence.split(/\s+/).map((word, localIndex) => {
-        const wordKey = `${sentenceIndex}-${localIndex}`;
-        const isCurrentWord = readingMode === ReadingMode.WORD && (globalWordIndex + localIndex === currentWordIndex);
-        
-        return (
-            <span key={wordKey} 
-                  onClick={() => handleWordClickForPhonemes(word)}
-                  className={`transition-all duration-200 p-1 rounded-md
-                    ${isCurrentWord ? 'bg-yellow-300' : ''}
-                    ${readingMode === ReadingMode.PHONEME ? 'hover:bg-blue-200 cursor-pointer' : ''}
-                  `}>
-                {word}{' '}
-            </span>
-        );
-    });
-  };
 
   const handleQuizComplete = useCallback((results: Omit<QuizResult, 'date'>) => {
     const newQuizResults: QuizResult = {
@@ -297,11 +335,11 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
             <img src={story.illustration} alt="Story illustration" className="w-full h-auto max-h-96 object-contain rounded-2xl mb-6"/>
             
             <div className="text-3xl leading-relaxed text-slate-700 space-y-4 mb-8">
-              {story.sentences.map((sentence, index) => (
-                <p key={index} className={currentSentenceIndex === index && readingMode === ReadingMode.SENTENCE ? 'font-bold' : ''}>
-                  {getWordSpans(sentence, index)}
-                </p>
-              ))}
+                {story.sentences.map((sentence, index) => (
+                  <p key={index} className={`p-1 rounded-md transition-all duration-200 ${(currentSentenceIndex === index && readingMode === ReadingMode.SENTENCE && !isReadingFullStory) || (isReadingFullStory && readingMode === ReadingMode.SENTENCE && fullStoryHighlightIndex === index) ? 'font-bold bg-yellow-200' : ''}`}>
+                    {getWordSpans(sentence, index)}
+                  </p>
+                ))}
             </div>
 
             {permissionError && (
@@ -327,20 +365,22 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
             )}
             
             <div className="flex flex-col md:flex-row items-center justify-between gap-4 p-4 bg-slate-50 rounded-2xl">
-                <div className="flex flex-wrap justify-center gap-2">
-                    {Object.values(ReadingMode).map(mode => (
-                        <button key={mode} onClick={() => handleModeChange(mode)}
-                                className={`px-4 py-2 rounded-full font-semibold transition-all ${readingMode === mode ? 'bg-blue-500 text-white shadow-md' : 'bg-slate-200 hover:bg-slate-300 text-slate-600'}`}>
-                          {mode}
-                      </button>
-                  ))}
+              <div className="flex flex-wrap justify-center gap-2">
+                  {Object.values(ReadingMode).map(mode => (
+                      <button key={mode} onClick={() => handleModeChange(mode)}
+                              className={`px-4 py-2 rounded-full font-semibold transition-all ${readingMode === mode ? 'bg-blue-500 text-white shadow-md' : 'bg-slate-200 hover:bg-slate-300 text-slate-600'}`}>
+                        {mode}
+                    </button>
+                ))}
 
+                {readingMode !== ReadingMode.PHONEME && (
                   <button onClick={handleReadFullStory}
                           disabled={isSpeaking}
                           className="px-4 py-2 rounded-full font-semibold transition-all bg-purple-500 text-white hover:bg-purple-600 disabled:bg-gray-400">
                     Read Full Story
                   </button>
-              </div>
+                )}
+            </div>
 
               <button onClick={handleSaveStory} disabled={isStorySaved} className="px-6 py-3 bg-green-500 text-white rounded-full font-bold text-lg hover:bg-green-600 transition-transform hover:scale-105 shadow-lg disabled:bg-gray-400 disabled:cursor-not-allowed">
                   {isStorySaved ? 'Saved!' : 'Save Story'}
