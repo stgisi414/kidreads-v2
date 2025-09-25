@@ -1,6 +1,8 @@
+// stgisi414/kidreads-v2/kidreads-v2-5096bbab39cec5b36bff0af2170f45b4a523b759/components/SavedStoriesModal.tsx
 import React from 'react';
 import type { Story } from '../types';
 import Icon from './Icon';
+import { useTextToSpeech } from '../hooks/useTextToSpeech';
 
 type SavedStoriesModalProps = {
   savedStories: Story[];
@@ -10,6 +12,7 @@ type SavedStoriesModalProps = {
 };
 
 const SavedStoriesModal: React.FC<SavedStoriesModalProps> = ({ savedStories, onLoadStory, onDeleteStory, onClose }) => {
+  const { speak } = useTextToSpeech();
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-2xl w-full relative animate-fade-in-up">
@@ -22,7 +25,7 @@ const SavedStoriesModal: React.FC<SavedStoriesModalProps> = ({ savedStories, onL
           <ul className="space-y-4 max-h-96 overflow-y-auto">
             {savedStories.map(story => (
               <li key={story.id} className="flex items-center justify-between p-4 bg-slate-100 rounded-lg">
-                <span className="font-bold text-lg text-slate-700">{story.title}</span>
+                <span className="font-bold text-lg text-slate-700 cursor-pointer" onClick={() => speak(story.title)}>{story.title}</span>
                 <div className="flex gap-2">
                   <button onClick={() => onLoadStory(story)} className="p-2 bg-green-500 text-white rounded-full hover:bg-green-600 transition"><Icon name="play" className="w-6 h-6"/></button>
                   <button onClick={() => onDeleteStory(story.id)} className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition"><Icon name="trash" className="w-6 h-6"/></button>

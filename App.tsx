@@ -26,6 +26,7 @@ const App: React.FC = () => {
 
       setStory({
         id: Date.now(),
+        title,
         text,
         illustration,
         sentences: sentences.map(s => s.trim()),

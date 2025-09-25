@@ -1,3 +1,4 @@
+// stgisi414/kidreads-v2/kidreads-v2-5096bbab39cec5b36bff0af2170f45b4a523b759/components/StoryScreen.tsx
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Story } from '../types';
 import { ReadingMode } from '../types';
@@ -56,6 +57,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome }) => {
   const [isStorySaved, setIsStorySaved] = useState(false);
   
   const [flowState, setFlowState] = useState<FlowState>('INITIAL');
+  const { speak, cancel, isSpeaking } = useTextToSpeech();
 
   useEffect(() => {
     const savedStories: Story[] = JSON.parse(localStorage.getItem('savedStories') || '[]');
@@ -78,7 +80,6 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome }) => {
     setIsStorySaved(true);
   };
 
-  const { speak, cancel, isSpeaking } = useTextToSpeech();
   const { recorderState, startRecording, stopRecording, permissionError } = useAudioRecorder();
 
   const readAloud = useCallback(() => {
@@ -261,7 +262,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome }) => {
     <div className="flex flex-col gap-4 w-full animate-fade-in">
         {isQuizVisible && <QuizModal questions={story.quiz} onClose={() => setIsQuizVisible(false)} />}
         <div className="bg-white p-6 rounded-3xl shadow-xl">
-            <h2 className="text-4xl font-black text-center text-blue-600 mb-4">{story.title}</h2>
+            <h2 className="text-4xl font-black text-center text-blue-600 mb-4 cursor-pointer" onClick={() => speak(story.title)}>{story.title}</h2>
             <img src={story.illustration} alt="Story illustration" className="w-full h-auto max-h-96 object-contain rounded-2xl mb-6"/>
             
             <div className="text-3xl leading-relaxed text-slate-700 space-y-4 mb-8">
