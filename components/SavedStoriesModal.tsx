@@ -25,10 +25,12 @@ const SavedStoriesModal: React.FC<SavedStoriesModalProps> = ({ savedStories, onL
         {savedStories.length > 0 ? (
           <ul className="space-y-4 max-h-96 overflow-y-auto">
             {savedStories.map(story => (
-              <li key={story.id} className="flex items-center justify-between p-4 bg-slate-100 rounded-lg">
-                <img src={story.illustration} alt={story.title} className="w-16 h-16 rounded-md object-cover mr-4" />
-                <span className="font-bold text-lg text-slate-700 cursor-pointer flex-grow" onClick={() => speak(story.title, undefined, false, voice)}>{story.title}</span>
-                <div className="flex gap-2">
+              <li key={story.id} className="flex flex-col md:flex-row md:items-center justify-between p-4 bg-slate-100 rounded-lg">
+                <div className="flex items-center w-full mb-2 md:mb-0">
+                  <img src={story.illustration} alt={story.title} className="w-16 h-16 rounded-md object-cover mr-4" />
+                  <span className="font-bold text-lg text-slate-700 cursor-pointer flex-grow" onClick={() => speak(story.title, undefined, false, voice)}>{story.title}</span>
+                </div>
+                <div className="flex gap-2 justify-end w-full md:w-auto">
                   <button onClick={() => onLoadStory(story)} className="p-2 bg-green-500 text-white rounded-full hover:bg-green-600 transition"><Icon name="play" className="w-6 h-6"/></button>
                   <button onClick={() => onDeleteStory(story.id)} className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition"><Icon name="trash" className="w-6 h-6"/></button>
                 </div>

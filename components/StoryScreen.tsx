@@ -298,7 +298,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice    }) 
             )}
             
             <div className="flex flex-col md:flex-row items-center justify-between gap-4 p-4 bg-slate-50 rounded-2xl">
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap justify-center gap-2">
                     {Object.values(ReadingMode).map(mode => (
                         <button key={mode} onClick={() => handleModeChange(mode)}
                                 className={`px-4 py-2 rounded-full font-semibold transition-all ${readingMode === mode ? 'bg-blue-500 text-white shadow-md' : 'bg-slate-200 hover:bg-slate-300 text-slate-600'}`}>

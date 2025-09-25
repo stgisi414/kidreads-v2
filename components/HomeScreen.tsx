@@ -14,7 +14,7 @@ type HomeScreenProps = {
   loadingMessage: string;
   error: string | null;
   voice: string;
-  onVoiceChange: (voice: 'Leda' | 'Atlas') => void;
+  onVoiceChange: (voice: 'Leda' | 'Orus') => void;
 };
 
 const HomeScreen: React.FC<HomeScreenProps> = ({ onCreateStory, onLoadStory, isLoading, loadingMessage, error, voice, onVoiceChange }) => {
@@ -74,8 +74,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ onCreateStory, onLoadStory, isL
           voice={voice}
         />
       )}
-      <h1 className="text-6xl font-black text-blue-600 mb-2 flex items-center justify-center">
-        <video autoPlay loop muted playsInline className="w-20 h-20 mr-4">
+      <h1 className="text-5xl md:text-6xl font-black text-blue-600 mb-2 flex items-center justify-center">
+        <video autoPlay loop muted playsInline className="w-16 h-16 md:w-20 md:h-20 mr-2 md:mr-4">
           <source src="/kidreads.mp4" type="video/mp4" />
         </video>
         KidReads
@@ -90,14 +90,14 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ onCreateStory, onLoadStory, isL
                 className={`text-5xl p-3 rounded-full transition-all ${voice === 'Leda' ? 'bg-blue-200 ring-4 ring-blue-400' : 'hover:bg-slate-200'}`}
                 aria-label="Select female voice"
             >
-                <span>👩</span>
+                <span>👩🏻</span>
             </button>
             <button
-                onClick={() => onVoiceChange('Atlas')}
-                className={`text-5xl p-3 rounded-full transition-all ${voice === 'Atlas' ? 'bg-blue-200 ring-4 ring-blue-400' : 'hover:bg-slate-200'}`}
+                onClick={() => onVoiceChange('Orus')}
+                className={`text-5xl p-3 rounded-full transition-all ${voice === 'Orus' ? 'bg-blue-200 ring-4 ring-blue-400' : 'hover:bg-slate-200'}`}
                 aria-label="Select male voice"
             >
-                <span>👨</span>
+                <span>👨🏽‍🦱</span>
             </button>
         </div>
       </div>

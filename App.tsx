@@ -1,5 +1,5 @@
 // stgisi414/kidreads-v2/kidreads-v2-5096bbab39cec5b36bff0af2170f45b4a523b759/App.tsx
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import type { Story } from './types';
 import HomeScreen from './components/HomeScreen';
 import StoryScreen from './components/StoryScreen';
@@ -14,7 +14,16 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [loadingMessage, setLoadingMessage] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
-  const [voice, setVoice] = useState('Leda'); // Leda (female) is the default
+  
+  // Load voice from localStorage on initial render, default to 'Leda'
+  const [voice, setVoice] = useState<string>(() => {
+    return localStorage.getItem('selectedVoice') || 'Leda';
+  });
+
+  // Save voice to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('selectedVoice', voice);
+  }, [voice]);
 
   const handleCreateStory = useCallback(async (topic: string) => {
     setIsLoading(true);
