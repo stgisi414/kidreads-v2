@@ -49,7 +49,7 @@ export const getPhonemesForWord = (word: string) => {
   return callFirebaseFunction("getPhonemesForWord", { word });
 };
 
-export const getTextToSpeechAudio = async (text: string, slow: boolean = false, voice: string, isWord: boolean = false): Promise<{ audioContent: string }> => {
+{/* export const getTextToSpeechAudio = async (text: string, slow: boolean = false, voice: string, isWord: boolean = false): Promise<{ audioContent: string }> => {
   try {
     // First, try the Gemini TTS function
     return await callFirebaseFunction("geminiTTS", { text, slow, voice, isWord });
@@ -62,6 +62,11 @@ export const getTextToSpeechAudio = async (text: string, slow: boolean = false, 
     // For any other kind of error, re-throw it
     throw error;
   }
+}; */}
+
+export const getTextToSpeechAudio = async (text: string, slow: boolean = false, voice: string, isWord: boolean = false): Promise<{ audioContent: string }> => {
+  // Directly use the Google Cloud TTS function to avoid Gemini TTS quota issues.
+  return callFirebaseFunction("googleCloudTTS", { text, slow, voice, isWord });
 };
 
 export const transcribeAudio = (audio: string): Promise<{ transcription?: string }> => {

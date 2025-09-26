@@ -51,20 +51,22 @@ export const useAudioRecorder = (): AudioRecorderHook => {
   const stopRecording = useCallback((): Promise<string | null> => {
     return new Promise((resolve) => {
         if (mediaRecorderRef.current && recorderState.status === 'recording') {
-            mediaRecorderRef.current.addEventListener('stop', () => {
-                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm;codecs=opus' });
-                const reader = new FileReader();
-                reader.onloadend = () => {
-                    const base64String = reader.result?.toString().split(',')[1] || null;
-                    setRecorderState({ status: 'stopped' });
-                    audioChunksRef.current = [];
-                    resolve(base64String);
-                };
-                reader.readAsDataURL(audioBlob);
-                streamRef.current?.getTracks().forEach(track => track.stop());
-            });
+            setTimeout(() => {
+                mediaRecorderRef.current.addEventListener('stop', () => {
+                    const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm;codecs=opus' });
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        const base64String = reader.result?.toString().split(',')[1] || null;
+                        setRecorderState({ status: 'stopped' });
+                        audioChunksRef.current = [];
+                        resolve(base64String);
+                    };
+                    reader.readAsDataURL(audioBlob);
+                    streamRef.current?.getTracks().forEach(track => track.stop());
+                });
 
-            mediaRecorderRef.current.stop();
+                mediaRecorderRef.current.stop();
+            }, 750); // Add a 750ms delay
         } else {
             resolve(null);
         }

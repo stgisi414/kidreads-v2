@@ -273,7 +273,7 @@ export const googleCloudTTS = onRequest(
         return response.status(405).send("Method Not Allowed");
       }
 
-      const { text, voice, isWord } = request.body;
+      const { text, voice, isWord, slow } = request.body;
       if (!text) {
         return response.status(400).send("Bad Request: Missing text");
       }
@@ -282,10 +282,13 @@ export const googleCloudTTS = onRequest(
       const googleVoice = voice === 'Leda'
         ? { languageCode: 'en-US', name: 'en-US-Studio-O' } // Female Studio Voice
         : { languageCode: 'en-US', name: 'en-US-Studio-M' }; // Male Studio Voice
-
-      const ssml = isWord
-        ? `<speak><break time="250ms"/>${text}</speak>`
-        : `<speak>${text}</speak>`;
+      
+      let ssml = `<speak>${text}</speak>`;
+      if (slow) {
+        ssml = `<speak><prosody rate="slow">${text}</prosody></speak>`;
+      } else if (isWord) {
+        ssml = `<speak><break time="250ms"/>${text}</speak>`;
+      }
 
       try {
         const [ttsResponse] = await textToSpeechClient.synthesizeSpeech({
@@ -441,9 +444,7 @@ export const checkWordMatch = onRequest(
 
             try {
                 const modelUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
-                const prompt = `Is the transcribed text "${transcribedWord}" a phonetic match for the expected word "${expectedWord}"? 
-                  Consider common transcription errors, like numbers for words (e.g., "2" for "to" or "8" for "ate"). 
-                  Respond with only "true" or "false".`;
+                const prompt = `Is the transcribed text "${transcribedWord}" a close phonetic match for the expected word "${expectedWord}"? The user is a child learning to read, so be lenient with pronunciation. Consider common transcription errors, like numbers for words (e.g., "2" for "to" or "8" for "ate"). Respond with only "true" or "false".`;
 
                 const apiRequest = {
                     contents: [{ parts: [{ text: prompt }] }]

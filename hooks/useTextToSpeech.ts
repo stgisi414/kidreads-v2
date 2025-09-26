@@ -51,7 +51,7 @@ const pcmToWav = (pcmData: Int16Array, sampleRate: number = 24000) => {
 
 
 interface TextToSpeechHook {
-  speak: (text: string, onEnd?: () => void, slow?: boolean, voice?: string, isWord?: boolean) => Promise<{duration: number, audioContent: string | null}>;
+  speak: (text: string, onEnd?: () => void, slow?: boolean, voice?: string, isWord?: boolean, autoPlay?: boolean, playbackRate?: number) => Promise<{duration: number, audioContent: string | null}>;
   cancel: () => void;
   isSpeaking: boolean;
   isLoading: boolean;
@@ -73,7 +73,16 @@ export const useTextToSpeech = (): TextToSpeechHook => {
     setIsLoading(false);
   }, []);
 
-  const speak = useCallback(async (text: string, onEnd?: () => void, slow: boolean = false, voice: string = 'Leda', isWord: boolean = false, autoPlay: boolean = true): Promise<{duration: number, audioContent: string | null, audioUrl?: string, play?: () => void}> => {
+  const speak = useCallback(async (
+    text: string, 
+    onEnd?: () => void, 
+    slow: boolean = false, 
+    voice: string = 'Leda', 
+    isWord: boolean = false, 
+    autoPlay: boolean = true, 
+    playbackRate: number = 1.0,
+    onPlay?: () => void // <-- Add this new parameter
+  ): Promise<{duration: number, audioContent: string | null, audioUrl?: string, play?: () => void}> => {
     if (isSpeaking || isLoading) {
       return { duration: 0, audioContent: null };
     }
@@ -98,7 +107,6 @@ export const useTextToSpeech = (): TextToSpeechHook => {
         };
       });
 
-
       const audioUrl = URL.createObjectURL(wavBlob);
       
       const audio = new Audio(audioUrl);
@@ -106,15 +114,19 @@ export const useTextToSpeech = (): TextToSpeechHook => {
 
       return new Promise((resolve) => {
         const play = () => {
+            audio.playbackRate = playbackRate;
             audio.play();
         }
         audio.onloadedmetadata = () => {
             if (autoPlay) {
                 play();
             }
-            resolve({ duration: audio.duration, audioContent: wavBase64, audioUrl, play });
+            resolve({ duration: audio.duration / playbackRate, audioContent: wavBase64, audioUrl, play });
         };
-        audio.onplay = () => setIsSpeaking(true);
+        audio.onplay = () => { // <-- This is the moment we need
+          setIsSpeaking(true);
+          if (onPlay) onPlay(); // <-- Trigger the callback here
+        };
         audio.onended = () => {
           setIsSpeaking(false);
           if (onEnd) onEnd();
