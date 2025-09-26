@@ -374,6 +374,15 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
         setPhonemeData({ word, phonemes });
 
         const onPlay = (duration: number) => {
+            // ---- DEBUGGING START ----
+            console.log('Audio Metadata:', {
+                word,
+                duration,
+                phonemes,
+                phonemeDurationMs: (duration * 1000) / phonemes.length,
+            });
+            // ---- DEBUGGING END ----
+
             if (duration > 0 && phonemes && phonemes.length > 0) {
                 const phonemeDurationMs = (duration * 1000) / phonemes.length;
 
@@ -389,7 +398,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
             }
         };
 
-        speak(word, undefined, true, voice, true, true, 0.75, onPlay);
+        speak(word, undefined, false, voice, true, true, 0.5, onPlay);
 
     } catch (e) {
         console.error("Error in handleWordClickForPhonemes:", e);
@@ -398,6 +407,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
         setIsLoadingPhonemes(false);
     }
   };
+
 
   const handleQuizComplete = useCallback((results: Omit<QuizResult, 'date'>) => {
     const newQuizResults: QuizResult = {

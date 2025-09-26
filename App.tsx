@@ -20,6 +20,24 @@ const App: React.FC = () => {
     return localStorage.getItem('selectedVoice') || 'Leda';
   });
 
+  useEffect(() => {
+    const startAudio = async () => {
+      if (Tone.context.state !== 'running') {
+        await Tone.start();
+        console.log('AudioContext started!');
+      }
+      document.body.removeEventListener('click', startAudio);
+    };
+
+    if (screen === 'story') {
+      document.body.addEventListener('click', startAudio);
+    }
+
+    return () => {
+      document.body.removeEventListener('click', startAudio);
+    };
+  }, [screen]);
+
   // Save voice to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem('selectedVoice', voice);

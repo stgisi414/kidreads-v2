@@ -7,6 +7,7 @@ import { transcribeAudio } from '../services/geminiService';
 import SavedStoriesModal from './SavedStoriesModal';
 import type { Story } from '../types';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
+import * as Tone from 'tone'; // Import Tone.js
 
 type HomeScreenProps = {
   onCreateStory: (topic: string) => void;
@@ -55,6 +56,11 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ onCreateStory, onLoadStory, isL
   };
   
   const handleMicClick = async () => {
+    // ** THE FIX IS HERE: Start the audio context on the first user interaction **
+    if (Tone.context.state !== 'running') {
+      await Tone.start();
+    }
+
     if (recorderState.status === 'recording') {
         setIsTranscribing(true);
         const audioBase64 = await stopRecording();
