@@ -1,9 +1,10 @@
 // stgisi414/kidreads-v2/kidreads-v2-5096bbab39cec5b36bff0af2170f45b4a523b759/App.tsx
 import React, { useState, useCallback, useEffect } from 'react';
+import * as Tone from 'tone'; // <-- Add this line
 import type { Story } from './types';
 import HomeScreen from './components/HomeScreen';
 import StoryScreen from './components/StoryScreen';
-import Header from './components/Header'; 
+import Header from './components/Header';
 import { generateStoryAndIllustration } from './services/geminiService';
 
 type Screen = 'home' | 'story';
@@ -19,24 +20,6 @@ const App: React.FC = () => {
   const [voice, setVoice] = useState<string>(() => {
     return localStorage.getItem('selectedVoice') || 'Leda';
   });
-
-  useEffect(() => {
-    const startAudio = async () => {
-      if (Tone.context.state !== 'running') {
-        await Tone.start();
-        console.log('AudioContext started!');
-      }
-      document.body.removeEventListener('click', startAudio);
-    };
-
-    if (screen === 'story') {
-      document.body.addEventListener('click', startAudio);
-    }
-
-    return () => {
-      document.body.removeEventListener('click', startAudio);
-    };
-  }, [screen]);
 
   // Save voice to localStorage whenever it changes
   useEffect(() => {

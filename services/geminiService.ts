@@ -49,24 +49,9 @@ export const getPhonemesForWord = (word: string) => {
   return callFirebaseFunction("getPhonemesForWord", { word });
 };
 
-{/* export const getTextToSpeechAudio = async (text: string, slow: boolean = false, voice: string, isWord: boolean = false): Promise<{ audioContent: string }> => {
-  try {
-    // First, try the Gemini TTS function
-    return await callFirebaseFunction("geminiTTS", { text, slow, voice, isWord });
-  } catch (error: any) {
-    // If it's a rate limit error (429), use the Google Cloud TTS fallback
-    if (error.status === 429) {
-      console.warn("Gemini TTS rate limit reached. Using Google Cloud TTS fallback.");
-      return callFirebaseFunction("googleCloudTTS", { text, slow, voice, isWord });
-    }
-    // For any other kind of error, re-throw it
-    throw error;
-  }
-}; */}
-
-export const getTextToSpeechAudio = async (text: string, slow: boolean = false, voice: string, isWord: boolean = false): Promise<{ audioContent: string }> => {
-  // Directly use the Google Cloud TTS function to avoid Gemini TTS quota issues.
-  return callFirebaseFunction("googleCloudTTS", { text, slow, voice, isWord });
+export const getTextToSpeechAudio = async (text: string, voice: string, isWord: boolean = false): Promise<{ audioContent: string }> => {
+  // We now pass a default speakingRate of 1.0 to the cloud function.
+  return callFirebaseFunction("googleCloudTTS", { text, speakingRate: 1.0, voice, isWord });
 };
 
 export const transcribeAudio = (audio: string): Promise<{ transcription?: string }> => {

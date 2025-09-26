@@ -53,7 +53,6 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
   const [phonemeData, setPhonemeData] = useState<{word: string, phonemes: string[]}|null>(null);
   const [isLoadingPhonemes, setIsLoadingPhonemes] = useState(false);
   const [isQuizVisible, setIsQuizVisible] = useState(false);
-  const [highlightedPhonemeIndex, setHighlightedPhonemeIndex] = useState<number | null>(null);
   const [isStorySaved, setIsStorySaved] = useState(false);
   const [flowState, setFlowState] = useState<FlowState>('INITIAL');
   const [currentStory, setCurrentStory] = useState<Story>(story);
@@ -259,22 +258,13 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
     const onEnd = () => {
         setIsReadingFullStory(false);
         setFullStoryHighlightIndex(-1);
-        if (preReadState) {
-            // Restore position but reset the flow to require user action
-            setFlowState('INITIAL'); 
-            setCurrentSentenceIndex(preReadState.currentSentenceIndex);
-            setCurrentWordIndex(preReadState.currentWordIndex);
-        } else {
-            // If there was no pre-read state, just go back to the beginning
-            setFlowState('INITIAL');
-            setCurrentSentenceIndex(0);
-            setCurrentWordIndex(0);
-        }
+        setFlowState('INITIAL'); 
     };
 
-    const { duration, audioContent, play } = await speak(story.text, onEnd, false, voice, false, false);
+    const { duration, audioContent, play } = await speak(story.text, onEnd, voice, false, false);
 
     const fallbackToEstimation = () => {
+        if (play) play(); // Start playback for fallback
         if (readingMode === ReadingMode.SENTENCE) {
             const sentences = story.sentences;
             let cumulativeDelay = 0;
@@ -296,25 +286,17 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
 
     if (duration > 0 && audioContent) {
         try {
-            console.log("Requesting timed transcript...");
             const { transcript } = await getTimedTranscript(audioContent, story.text);
-            console.log("Received transcript:", transcript);
-
-            if (play) {
-                play();
-            }
+            if (play) play(); // Start playback
 
             if (transcript && Array.isArray(transcript)) {
-                console.log("Processing transcript...");
                 let searchFromIndex = 0;
                 transcript.forEach(item => {
                     const { word, startTime } = item;
                     const startTimeMs = parseFloat(startTime) * 1000;
-
                     const wordIndex = story.words.findIndex(
                         (storyWord, index) => index >= searchFromIndex && normalizeText(storyWord) === normalizeText(word)
                     );
-
                     if (wordIndex !== -1) {
                         const timeout = setTimeout(() => {
                             if (readingMode === ReadingMode.SENTENCE) {
@@ -331,11 +313,11 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
                 fallbackToEstimation();
             }
         } catch (error) {
-            console.error("Error getting timed transcript:", error);
+            console.error("Error getting timed transcript, falling back to estimation:", error);
             fallbackToEstimation();
         }
     }
-}, [story, readingMode, voice, cancel, flowState, currentSentenceIndex, currentWordIndex, preReadState, speak, wordToSentenceMap]);
+}, [story, readingMode, voice, cancel, flowState, currentSentenceIndex, currentWordIndex, speak, wordToSentenceMap]);
   
   const getWordSpans = (sentence: string, sentenceIndex: number) => {
     let globalWordIndexOffset = 0;
@@ -362,50 +344,25 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
   };
 
   const handleWordClickForPhonemes = async (word: string) => {
-    if (readingMode !== ReadingMode.PHONEME || isSpeaking || isLoadingPhonemes) return;
+  if (readingMode !== ReadingMode.PHONEME || isSpeaking || isLoadingPhonemes) return;
 
-    cancel();
-    setHighlightedPhonemeIndex(null);
-    setIsLoadingPhonemes(true);
-    setPhonemeData({ word, phonemes: ['...'] });
+  cancel();
+  setIsLoadingPhonemes(true);
+  setPhonemeData({ word, phonemes: ['...'] }); // Show loading state
 
-    try {
-        const phonemes = await getPhonemesForWord(word);
-        setPhonemeData({ word, phonemes });
+  try {
+      const phonemes = await getPhonemesForWord(word);
+      setPhonemeData({ word, phonemes });
 
-        const onPlay = (duration: number) => {
-            // ---- DEBUGGING START ----
-            console.log('Audio Metadata:', {
-                word,
-                duration,
-                phonemes,
-                phonemeDurationMs: (duration * 1000) / phonemes.length,
-            });
-            // ---- DEBUGGING END ----
+      // Just speak the word at normal speed.
+      speak(word, undefined, voice, true);
 
-            if (duration > 0 && phonemes && phonemes.length > 0) {
-                const phonemeDurationMs = (duration * 1000) / phonemes.length;
-
-                phonemes.forEach((_, index) => {
-                    setTimeout(() => {
-                        setHighlightedPhonemeIndex(index);
-                    }, index * phonemeDurationMs);
-                });
-
-                setTimeout(() => {
-                    setHighlightedPhonemeIndex(null);
-                }, duration * 1000);
-            }
-        };
-
-        speak(word, undefined, false, voice, true, true, 0.5, onPlay);
-
-    } catch (e) {
-        console.error("Error in handleWordClickForPhonemes:", e);
-        setPhonemeData({ word, phonemes: ['Error'] });
-    } finally {
-        setIsLoadingPhonemes(false);
-    }
+  } catch (e) {
+      console.error("Error in handleWordClickForPhonemes:", e);
+      setPhonemeData({ word, phonemes: ['Error'] });
+  } finally {
+      setIsLoadingPhonemes(false);
+  }
   };
 
 
@@ -453,14 +410,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
                 <div className="my-4 p-4 bg-blue-100 rounded-lg text-center">
                     <p className="text-xl font-bold">{phonemeData.word}</p>
                     <p className="text-3xl font-bold tracking-widest text-blue-700">
-                        {phonemeData.phonemes.map((phoneme, index) => (
-                          <React.Fragment key={index}>
-                            <span className={`p-1 rounded-md transition-colors duration-150 ${highlightedPhonemeIndex === index ? 'bg-yellow-300' : ''}`}>
-                              {phoneme}
-                            </span>
-                            {index < phonemeData.phonemes.length - 1 && ' - '}
-                          </React.Fragment>
-                        ))}
+                        {phonemeData.phonemes.join(' - ')}
                     </p>
                 </div>
             )}
