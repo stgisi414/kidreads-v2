@@ -363,41 +363,37 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
 
   const handleWordClickForPhonemes = async (word: string) => {
     if (readingMode !== ReadingMode.PHONEME || isSpeaking || isLoadingPhonemes) return;
-    
-    // Reset state
+
     cancel();
     setHighlightedPhonemeIndex(null);
     setIsLoadingPhonemes(true);
-    setPhonemeData({word, phonemes: ['...']});
-    
+    setPhonemeData({ word, phonemes: ['...'] });
+
     try {
-      const phonemes = await getPhonemesForWord(word);
-      setPhonemeData({word, phonemes});
-      
-      // Start the audio playback, slowed down
-      speak(word, undefined, true, voice, true, true, 0.75);
+        const phonemes = await getPhonemesForWord(word);
+        setPhonemeData({ word, phonemes });
 
-      // --- Corrected Animation Logic ---
-      if (phonemes && phonemes.length > 0) {
-        const FIXED_HIGHLIGHT_DURATION_MS = 150; // A consistent time for each phoneme highlight
+        const onPlay = (duration: number) => {
+            if (duration > 0 && phonemes && phonemes.length > 0) {
+                const phonemeDurationMs = (duration * 1000) / phonemes.length;
 
-        // Sequentially highlight each phoneme with a fixed delay
-        phonemes.forEach((_, index) => {
-          setTimeout(() => {
-            setHighlightedPhonemeIndex(index);
-          }, index * FIXED_HIGHLIGHT_DURATION_MS);
-        });
-        
-        // Clear the highlight after the entire animation sequence is over
-        setTimeout(() => {
-            setHighlightedPhonemeIndex(null);
-        }, phonemes.length * FIXED_HIGHLIGHT_DURATION_MS);
-      }
-      // --- End of Corrected Logic ---
+                phonemes.forEach((_, index) => {
+                    setTimeout(() => {
+                        setHighlightedPhonemeIndex(index);
+                    }, index * phonemeDurationMs);
+                });
+
+                setTimeout(() => {
+                    setHighlightedPhonemeIndex(null);
+                }, duration * 1000);
+            }
+        };
+
+        speak(word, undefined, true, voice, true, true, 0.75, onPlay);
 
     } catch (e) {
-      console.error("Error in handleWordClickForPhonemes:", e);
-      setPhonemeData({word, phonemes: ['Error']});
+        console.error("Error in handleWordClickForPhonemes:", e);
+        setPhonemeData({ word, phonemes: ['Error'] });
     } finally {
         setIsLoadingPhonemes(false);
     }
