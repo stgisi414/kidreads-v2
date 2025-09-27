@@ -61,7 +61,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user, onGoHome, voice,
   const [flowState, setFlowState] = useState<FlowState>('INITIAL');
   const [currentStory, setCurrentStory] = useState<Story>(story);
   const [incorrectAttempts, setIncorrectAttempts] = useState(0);
-  
+
   const [isReadingFullStory, setIsReadingFullStory] = useState(false);
   const [fullStoryHighlightIndex, setFullStoryHighlightIndex] = useState(-1);
   const [preReadState, setPreReadState] = useState<any>(null);
@@ -78,13 +78,6 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user, onGoHome, voice,
     });
     return map;
   }, [story.sentences]);
-
-
-  useEffect(() => {
-    const savedStories: Story[] = JSON.parse(localStorage.getItem('savedStories') || '[]');
-    const isSaved = savedStories.some(s => s.id === story.id);
-    setIsStorySaved(isSaved);
-  }, [story.id]);
 
   const handleSaveStory = () => {
     if (isStorySaved || !user) return;
