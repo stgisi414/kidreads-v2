@@ -9,6 +9,7 @@ import { useTextToSpeech } from '../hooks/useTextToSpeech';
 import { getSavedStories, deleteStory } from '../services/firestoreService';
 import type { User } from 'firebase/auth';
 import { loginWithGoogle, logout } from '../services/authService';
+import * as Tone from 'tone';
 
 type HomeScreenProps = {
   onCreateStory: (topic: string) => void;
@@ -64,6 +65,10 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
   };
   
   const handleMicClick = async () => {
+    if (Tone.context.state !== 'running') {
+      await Tone.start();
+    }
+
     if (recorderState.status === 'recording') {
         setIsTranscribing(true);
         const audioBase64 = await stopRecording();

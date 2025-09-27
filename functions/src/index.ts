@@ -347,6 +347,7 @@ export const transcribeAudio = onRequest(
           content: audioBytes,
         };
         const config = {
+          // Revert encoding back to WEBM_OPUS
           encoding: "WEBM_OPUS" as const,
           sampleRateHertz: 48000,
           languageCode: "en-US",
@@ -357,9 +358,11 @@ export const transcribeAudio = onRequest(
           config: config,
         };
 
+        // Correctly handle the promise and destructure the response
         const [speechResponse] = await speechClient.recognize(requestPayload);
         const transcription = speechResponse.results
-          ?.map((result) => result.alternatives?.[0].transcript)
+          // Add the correct type for the result object
+          ?.map((result: any) => result.alternatives?.[0].transcript)
           .join("\n");
         
         response.status(200).send({ transcription });
@@ -369,7 +372,7 @@ export const transcribeAudio = onRequest(
       }
     });
   },
-);  
+);
 
 export const getTimedTranscript = onRequest(
     { secrets: ["API_KEY"], maxInstances: 10, region: "us-central1" },

@@ -1,67 +1,48 @@
-// stgisi414/kidreads-v2/kidreads-v2-5096bbab39cec5b36bff0af2170f45b4a523b759/services/geminiService.ts
-// services/geminiService.ts
+import { httpsCallable } from "firebase/functions";
+import { functions } from "../firebase"; // Import the functions instance
 
-const getFunctionUrl = (name: string) => {
-  // Replace with your actual project details
-  const projectId = "kidreads-v2";
-  const region = "us-central1";
-  return `https://${region}-${projectId}.cloudfunctions.net/${name}`;
+// Create callable function references
+const generateStoryAndIllustrationCallable = httpsCallable(functions, 'generateStoryAndIllustration');
+const getPhonemesForWordCallable = httpsCallable(functions, 'getPhonemesForWord');
+const googleCloudTTSCallable = httpsCallable(functions, 'googleCloudTTS');
+const transcribeAudioCallable = httpsCallable(functions, 'transcribeAudio');
+const getTimedTranscriptCallable = httpsCallable(functions, 'getTimedTranscript');
+const checkWordMatchCallable = httpsCallable(functions, 'checkWordMatch');
+
+// Define types for the function return data
+type StoryResponse = { title: string; text: string; illustration: string; quiz: any[]; };
+type TTSResponse = { audioContent: string; };
+type TranscriptionResponse = { transcription?: string; };
+type TimedTranscriptResponse = { transcript?: any[]; };
+type WordMatchResponse = { isMatch: boolean; };
+
+// Export new functions that use the callable references
+export const generateStoryAndIllustration = async (topic: string): Promise<StoryResponse> => {
+  const result = await generateStoryAndIllustrationCallable({ topic });
+  return result.data as StoryResponse;
 };
 
-async function callFirebaseFunction(functionName: string, bodyData: any) {
-  const url = getFunctionUrl(functionName);
-  let lastError: any = null;
-
-  for (let i = 0; i < 3; i++) {
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(bodyData),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`Error from ${functionName} (status ${response.status}):`, errorText);
-        const error: any = new Error(`Failed to call function ${functionName}`);
-        error.status = response.status;
-        throw error;
-      }
-
-      return response.json();
-    } catch (error) {
-      console.error(`Attempt ${i + 1} failed for ${functionName}:`, error);
-      lastError = error;
-    }
-  }
-  
-  console.error(`All retry attempts failed for ${functionName}.`);
-  throw lastError;
-}
-
-export const generateStoryAndIllustration = (topic: string) => {
-  return callFirebaseFunction("generateStoryAndIllustration", { topic });
+export const getPhonemesForWord = async (word: string): Promise<string[]> => {
+  const result = await getPhonemesForWordCallable({ word });
+  return result.data as string[];
 };
 
-export const getPhonemesForWord = (word: string) => {
-  return callFirebaseFunction("getPhonemesForWord", { word });
+export const getTextToSpeechAudio = async (text: string, voice: string, isWord: boolean = false): Promise<TTSResponse> => {
+  const result = await googleCloudTTSCallable({ text, speakingRate: 1.0, voice, isWord });
+  return result.data as TTSResponse;
 };
 
-export const getTextToSpeechAudio = async (text: string, voice: string, isWord: boolean = false): Promise<{ audioContent: string }> => {
-  // We now pass a default speakingRate of 1.0 to the cloud function.
-  return callFirebaseFunction("googleCloudTTS", { text, speakingRate: 1.0, voice, isWord });
+export const transcribeAudio = async (audio: string): Promise<TranscriptionResponse> => {
+    const result = await transcribeAudioCallable({ audio });
+    return result.data as TranscriptionResponse;
 };
 
-export const transcribeAudio = (audio: string): Promise<{ transcription?: string }> => {
-    return callFirebaseFunction("transcribeAudio", { audio });
+export const getTimedTranscript = async (audio: string, text: string): Promise<TimedTranscriptResponse> => {
+  const result = await getTimedTranscriptCallable({ audio, text });
+  return result.data as TimedTranscriptResponse;
 };
 
-export const getTimedTranscript = (audio: string, text: string): Promise<{ transcript?: any[] }> => {
-  return callFirebaseFunction("getTimedTranscript", { audio, text });
-};
-
-export const checkWordMatch = (transcribedWord: string, expectedWord: string): Promise<{ isMatch: boolean }> => {
-    return callFirebaseFunction("checkWordMatch", { transcribedWord, expectedWord });
+export const checkWordMatch = async (transcribedWord: string, expectedWord: string): Promise<WordMatchResponse> => {
+    const result = await checkWordMatchCallable({ transcribedWord, expectedWord });
+    return result.data as WordMatchResponse;
 };

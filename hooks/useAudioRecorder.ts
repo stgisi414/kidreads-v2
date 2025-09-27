@@ -28,11 +28,11 @@ export const useAudioRecorder = (): AudioRecorderHook => {
     
     setPermissionError(false);
     try {
-      // **FIX**: Request microphone access only when start is called.
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       
-      const mediaRecorder = new MediaRecorder(streamRef.current, { mimeType: 'audio/webm;codecs=opus' });
+      // Change mimeType to audio/mp4 for better iOS compatibility
+      const mediaRecorder = new MediaRecorder(streamRef.current, { mimeType: 'audio/mp4' });
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
@@ -53,7 +53,8 @@ export const useAudioRecorder = (): AudioRecorderHook => {
         if (mediaRecorderRef.current && recorderState.status === 'recording') {
             setTimeout(() => {
                 mediaRecorderRef.current.addEventListener('stop', () => {
-                    const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm;codecs=opus' });
+                    // Update Blob type to audio/mp4
+                    const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/mp4' });
                     const reader = new FileReader();
                     reader.onloadend = () => {
                         const base64String = reader.result?.toString().split(',')[1] || null;
