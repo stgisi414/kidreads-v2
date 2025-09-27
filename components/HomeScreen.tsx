@@ -20,9 +20,10 @@ type HomeScreenProps = {
   voice: string;
   onVoiceChange: (voice: 'Leda' | 'Orus') => void;
   user: User | null;
+  setError: (error: string | null) => void;
 };
 
-const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStory, isLoading, loadingMessage, error, voice, onVoiceChange }) => {
+const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStory, isLoading, loadingMessage, error, voice, onVoiceChange, setError }) => {
   const { recorderState, startRecording, stopRecording, permissionError } = useAudioRecorder();
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isStoriesModalVisible, setStoriesModalVisible] = useState(false);
@@ -77,9 +78,19 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
                 const { transcription } = await transcribeAudio(audioBase64);
                 if (transcription && transcription.trim()) {
                     onCreateStory(transcription);
+                } else {
+                    // Handle cases where transcription is empty or null
+                    setError("I couldn't quite catch that. Please try again.");
                 }
-            } catch (e) {
+            } catch (e: any) {
                 console.error("Transcription failed", e);
+                if (e.message === "Transcription timed out") {
+                    setError("The request took too long. Please check your internet connection and try again.");
+                } else if (e.code === 'unavailable' || e.code === 'internal') {
+                    setError("There seems to be a network issue. Please check your connection and try again.");
+                } else {
+                    setError("Sorry, I couldn't understand that. Please try again.");
+                }
             } finally {
                 setIsTranscribing(false);
             }

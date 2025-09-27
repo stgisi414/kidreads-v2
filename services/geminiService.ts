@@ -33,7 +33,13 @@ export const getTextToSpeechAudio = async (text: string, voice: string, isWord: 
 };
 
 export const transcribeAudio = async (audio: string): Promise<TranscriptionResponse> => {
-    const result = await transcribeAudioCallable({ audio });
+    const timeoutPromise = new Promise<TranscriptionResponse>((_, reject) =>
+        setTimeout(() => reject(new Error("Transcription timed out")), 15000) // 15 second timeout
+    );
+
+    const transcriptionPromise = transcribeAudioCallable({ audio });
+
+    const result = await Promise.race([transcriptionPromise, timeoutPromise]);
     return result.data as TranscriptionResponse;
 };
 
