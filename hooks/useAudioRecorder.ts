@@ -31,8 +31,8 @@ export const useAudioRecorder = (): AudioRecorderHook => {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       
-      // Change mimeType to audio/mp4 for better iOS compatibility
-      const mediaRecorder = new MediaRecorder(streamRef.current, { mimeType: 'audio/mp4' });
+      // Revert mimeType to audio/webm and let the browser choose the codec.
+      const mediaRecorder = new MediaRecorder(streamRef.current, { mimeType: 'audio/webm' });
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
@@ -53,8 +53,8 @@ export const useAudioRecorder = (): AudioRecorderHook => {
         if (mediaRecorderRef.current && recorderState.status === 'recording') {
             setTimeout(() => {
                 mediaRecorderRef.current.addEventListener('stop', () => {
-                    // Update Blob type to audio/mp4
-                    const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/mp4' });
+                    // Revert Blob type to audio/webm.
+                    const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
                     const reader = new FileReader();
                     reader.onloadend = () => {
                         const base64String = reader.result?.toString().split(',')[1] || null;

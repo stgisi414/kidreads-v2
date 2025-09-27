@@ -347,9 +347,9 @@ export const transcribeAudio = onRequest(
           content: audioBytes,
         };
         const config = {
-          // Revert encoding back to WEBM_OPUS
-          encoding: "WEBM_OPUS" as const,
-          sampleRateHertz: 48000,
+          // Change encoding to OGG_OPUS
+          encoding: "OGG_OPUS" as const,
+          // The sampleRateHertz property MUST be removed for OGG_OPUS
           languageCode: "en-US",
           model: "latest_long",
         };
