@@ -18,20 +18,17 @@ export const getSavedStories = async (userId: string): Promise<Story[]> => {
 export const saveStory = async (userId: string, story: Story): Promise<void> => {
   const storiesRef = collection(db, 'users', userId, STORIES_COLLECTION);
   
-  // Check if we need to make room for the new story
   const q = query(storiesRef, orderBy('id', 'desc'));
   const querySnapshot = await getDocs(q);
 
   if (querySnapshot.docs.length >= MAX_STORIES) {
-    // Delete the oldest story to make room
     const oldestStory = querySnapshot.docs[querySnapshot.docs.length - 1];
     await deleteDoc(oldestStory.ref);
   }
 
-  // Save the new story, making sure not to save the large illustration data
-  const storyToSave = { ...story, illustration: '' };
+  // Save the complete story object, including the illustration
   const storyDocRef = doc(db, 'users', userId, STORIES_COLLECTION, story.id.toString());
-  await setDoc(storyDocRef, storyToSave);
+  await setDoc(storyDocRef, story);
 };
 
 // Delete a specific story for a user
@@ -42,7 +39,7 @@ export const deleteStory = async (userId: string, storyId: number): Promise<void
 
 // Update an existing story (e.g., with quiz results)
 export const updateStory = async (userId: string, story: Story): Promise<void> => {
-    const storyToUpdate = { ...story, illustration: '' };
     const storyDocRef = doc(db, 'users', userId, STORIES_COLLECTION, story.id.toString());
-    await setDoc(storyDocRef, storyToUpdate, { merge: true }); // Use merge to avoid overwriting other fields
+    // Use merge to avoid overwriting and save the full story object
+    await setDoc(storyDocRef, story, { merge: true });
 };

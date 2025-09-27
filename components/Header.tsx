@@ -32,3 +32,5 @@ const Header: React.FC<HeaderProps> = ({ onGoHome, user }) => {
     </header>
   );
 };
+
+export default Header;

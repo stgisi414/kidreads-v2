@@ -1,11 +1,19 @@
 // functions/src/index.ts
 
 import { onRequest, Request as FunctionsRequest } from "firebase-functions/v2/https";
+import { onDocumentDeleted } from "firebase-functions/v2/firestore"; 
 import { Response as ExpressResponse } from "express";
 import * as logger from "firebase-functions/logger";
 import cors from "cors";
 import { SpeechClient } from "@google-cloud/speech";
 import { TextToSpeechClient } from "@google-cloud/text-to-speech";
+import { initializeApp } from "firebase-admin/app";
+import { getStorage } from "firebase-admin/storage";
+import { v4 as uuidv4 } from 'uuid';
+
+// Initialize the Admin SDK
+initializeApp();
+const bucket = getStorage().bucket();
 
 // Define the list of allowed websites
 const allowedOrigins = [
@@ -45,21 +53,21 @@ Your response MUST be a valid JSON object with the following structure:
 
 export const generateStoryAndIllustration = onRequest(
   { secrets: ["API_KEY"], maxInstances: 10, region: "us-central1" },
-  (request, response: ExpressResponse) => {
+  async (request, response: ExpressResponse) => {
     corsHandler(request, response, async () => {
-      const { topic } = request.body;
-      if (!topic) {
-        response.status(400).send({ error: "Topic is required." });
-        return;
-      }
+        const { topic } = request.body;
+        if (!topic) {
+            response.status(400).send({ error: "Topic is required." });
+            return;
+        }
 
-      const GEMINI_API_KEY = process.env.API_KEY;
-      if (!GEMINI_API_KEY) {
-        logger.error("API_KEY not configured in environment.");
-        response.status(500).send({ error: "Internal Server Error: API key not found." });
-        return;
-      }
-
+        const GEMINI_API_KEY = process.env.API_KEY;
+        if (!GEMINI_API_KEY) {
+            logger.error("API_KEY not configured in environment.");
+            response.status(500).send({ error: "Internal Server Error: API key not found." });
+            return;
+        }
+        
       try {
         const modelUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
         const apiRequest = {
@@ -139,9 +147,22 @@ export const generateStoryAndIllustration = onRequest(
           logger.error("No image data found in Imagen response", imageData);
           throw new Error("Failed to generate illustration.");
         }
-        const illustration = `data:image/jpeg;base64,${base64ImageBytes}`;
-        // **FIX**: Send quiz data to the frontend
-        response.status(200).send({ title, text: storyText, illustration, quiz });
+        
+        const imageBuffer = Buffer.from(base64ImageBytes, 'base64');
+        const fileName = `illustrations/${uuidv4()}.jpeg`;
+        const file = bucket.file(fileName);
+
+        await file.save(imageBuffer, {
+          metadata: {
+            contentType: 'image/jpeg',
+          },
+        });
+        
+        await file.makePublic();
+        const illustrationUrl = file.publicUrl();
+
+        response.status(200).send({ title, text: storyText, illustration: illustrationUrl, quiz });
+
       } catch (error) {
         logger.error("Error in generateStoryAndIllustration:", error);
         response.status(500).send({ error: "Could not generate story and illustration." });
@@ -474,3 +495,31 @@ export const checkWordMatch = onRequest(
         });
     }
 );
+
+export const deleteStoryImage = onDocumentDeleted("users/{userId}/stories/{storyId}", async (event) => {
+    const deletedData = event.data?.data();
+    if (!deletedData) {
+        logger.info("No data associated with the deleted document.");
+        return;
+    }
+
+    const imageUrl = deletedData.illustration;
+    if (!imageUrl || typeof imageUrl !== 'string' || !imageUrl.startsWith('https://storage.googleapis.com')) {
+        logger.info("No valid illustration URL found in the deleted document.");
+        return;
+    }
+
+    try {
+        const url = new URL(imageUrl);
+        // The pathname will be something like '/b/bucket-name/o/illustrations%2Fuuid.jpeg'
+        // We need to decode it and remove the initial bucket info.
+        const filePath = decodeURIComponent(url.pathname.split('/o/')[1]);
+
+        if (filePath) {
+            await bucket.file(filePath).delete();
+            logger.info(`Successfully deleted image: ${filePath}`);
+        }
+    } catch (error) {
+        logger.error(`Failed to delete image for story ${event.params.storyId}:`, error);
+    }
+});

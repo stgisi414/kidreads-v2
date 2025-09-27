@@ -14,6 +14,7 @@ type StoryScreenProps = {
   story: Story;
   onGoHome: () => void;
   voice: string;
+  isInitiallySaved: boolean;
 };
 
 type Feedback = 'correct' | 'incorrect' | null;
@@ -48,7 +49,7 @@ const calculateSimilarity = (str1: string, str2: string) => {
     return similarity;
 };
 
-const StoryScreen: React.FC<StoryScreenProps> = ({ story, user, onGoHome, voice }) => {
+const StoryScreen: React.FC<StoryScreenProps> = ({ story, user, onGoHome, voice, isInitiallySaved }) => {
   const [readingMode, setReadingMode] = useState<ReadingMode>(ReadingMode.SENTENCE);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
@@ -56,7 +57,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user, onGoHome, voice 
   const [phonemeData, setPhonemeData] = useState<{word: string, phonemes: string[]}|null>(null);
   const [isLoadingPhonemes, setIsLoadingPhonemes] = useState(false);
   const [isQuizVisible, setIsQuizVisible] = useState(false);
-  const [isStorySaved, setIsStorySaved] = useState(false);
+  const [isStorySaved, setIsStorySaved] = useState(isInitiallySaved);
   const [flowState, setFlowState] = useState<FlowState>('INITIAL');
   const [currentStory, setCurrentStory] = useState<Story>(story);
   const [incorrectAttempts, setIncorrectAttempts] = useState(0);
@@ -87,8 +88,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user, onGoHome, voice 
 
   const handleSaveStory = () => {
     if (isStorySaved || !user) return;
-
-    saveStory(user.uid, currentStory).then(() => {
+    saveStory(user.uid, story).then(() => {
       setIsStorySaved(true);
     });
   };
@@ -365,19 +365,15 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user, onGoHome, voice 
 
 
   const handleQuizComplete = useCallback((results: Omit<QuizResult, 'date'>) => {
-    if (!user) return;
-
+    if(!user) return;
     const newQuizResults: QuizResult = {
       ...results,
       date: new Date().toISOString(),
     };
     
-    const updatedStory = { ...currentStory, quizResults: newQuizResults };
-    setCurrentStory(updatedStory);
-
-     // Update the story in Firestore
+    const updatedStory = { ...story, quizResults: newQuizResults };
     updateStory(user.uid, updatedStory);
-  }, [currentStory]);
+  }, [story, user]);
 
   return (
     <div className="flex flex-col gap-4 w-full animate-fade-in">

@@ -1,4 +1,3 @@
-// stgisi414/kidreads-v2/kidreads-v2-5096bbab39cec5b36bff0af2170f45b4a523b759/components/HomeScreen.tsx
 import React, { useState, useEffect, useCallback } from 'react';
 import Spinner from './Spinner';
 import Icon from './Icon';
@@ -9,9 +8,9 @@ import type { Story } from '../types';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
 import { getSavedStories, deleteStory } from '../services/firestoreService';
 import type { User } from 'firebase/auth';
+import { loginWithGoogle, logout } from '../services/authService';
 
 type HomeScreenProps = {
-  user: User | null;
   onCreateStory: (topic: string) => void;
   onLoadStory: (story: Story) => void;
   isLoading: boolean;
@@ -19,6 +18,7 @@ type HomeScreenProps = {
   error: string | null;
   voice: string;
   onVoiceChange: (voice: 'Leda' | 'Orus') => void;
+  user: User | null;
 };
 
 const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStory, isLoading, loadingMessage, error, voice, onVoiceChange }) => {
@@ -34,43 +34,33 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
     Press the <span class="font-semibold text-red-600">checkmark</span> when you're done!`;
     
   const instructionsText = "Press the button and say something like 'a happy little dog' or 'a cat flying to the moon'. Press the checkmark when you're done!";
-  
-  // Fetch stories when user logs in or changes
+
   useEffect(() => {
     if (user) {
       getSavedStories(user.uid).then(setSavedStories);
     } else {
-      setSavedStories([]); // Clear stories if logged out
+      setSavedStories([]);
     }
   }, [user]);
+
+  const handleReadInstructions = useCallback(async () => {
+    if (instructionAudio) {
+      instructionAudio.play();
+    } else {
+      const audio = await speak(instructionsText, undefined, voice, false, true);
+      if (audio && audio.audioContent) {
+        const audioBlob = new Blob([base64ToArrayBuffer(audio.audioContent)], { type: 'audio/mpeg' });
+        const audioUrl = URL.createObjectURL(audioBlob);
+        setInstructionAudio(new Audio(audioUrl));
+      }
+    }
+  }, [instructionAudio, instructionsText, speak, voice]);
 
   const handleDeleteStory = (storyId: number) => {
     if (!user) return;
     deleteStory(user.uid, storyId).then(() => {
       setSavedStories(prev => prev.filter(story => story.id !== storyId));
     });
-  };
-
-  useEffect(() => {
-    const stories = JSON.parse(localStorage.getItem('savedStories') || '[]');
-    setSavedStories(stories);
-  }, []);
-
-  const handleReadInstructions = useCallback(async () => {
-    if (instructionAudio) {
-      instructionAudio.play();
-    } else {
-      const audio = await speak(instructionsText, undefined, false, voice);
-      if (audio) {
-        setInstructionAudio(new Audio(audio as unknown as string));
-      }
-    }
-  }, [instructionAudio, instructionsText, speak, voice]);
-
-  const handleDeleteStory = (storyId: number) => {
-    const updatedStories = savedStories.filter(story => story.id !== storyId);
-    setSavedStories(updatedStories);
-    localStorage.setItem('savedStories', JSON.stringify(updatedStories));
   };
   
   const handleMicClick = async () => {
@@ -96,6 +86,16 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
     }
   };
 
+  const base64ToArrayBuffer = (base64: string) => {
+    const binaryString = window.atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+  };
+
   if (isLoading || isTranscribing) {
     return <Spinner message={isTranscribing ? "Thinking about your topic..." : (loadingMessage || "Loading...")} />;
   }
@@ -113,6 +113,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
           voice={voice}
         />
       )}
+      {/* Restored the title for the home screen */}
       <h1 className="text-5xl md:text-6xl font-black text-blue-600 mb-2 flex items-center justify-center">
         <video autoPlay loop muted playsInline className="w-16 h-16 md:w-20 md:h-20 mr-2 md:mr-4">
           <source src="/kidreads.mp4" type="video/mp4" />
@@ -166,10 +167,24 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
       >
         <Icon name={isListening ? "check" : "microphone"} className="w-20 h-20" />
       </button>
-
-      <button onClick={() => setStoriesModalVisible(true)} disabled={!user} className="mt-8 px-6 py-3 bg-purple-500 text-white rounded-full font-bold text-lg hover:bg-purple-600 transition-transform hover:scale-105 shadow-lg">
-        {user ? 'My Stories' : 'Login to see your stories'}
-      </button>
+      
+      {/* Correct Login/Logout button section for HomeScreen */}
+      <div className="mt-8 flex gap-4">
+        {!user ? (
+          <button onClick={loginWithGoogle} className="px-6 py-3 bg-blue-500 text-white rounded-full font-bold text-lg hover:bg-blue-600 transition-transform hover:scale-105 shadow-lg">
+            Login with Google
+          </button>
+        ) : (
+          <>
+            <button onClick={() => setStoriesModalVisible(true)} className="px-6 py-3 bg-purple-500 text-white rounded-full font-bold text-lg hover:bg-purple-600 transition-transform hover:scale-105 shadow-lg">
+              My Stories
+            </button>
+            <button onClick={logout} className="px-6 py-3 bg-slate-200 text-slate-700 rounded-full font-bold text-lg hover:bg-slate-300 transition-transform hover:scale-105 shadow-lg">
+              Logout
+            </button>
+          </>
+        )}
+      </div>
 
       {error && (
         <p className="mt-8 text-lg font-semibold text-red-500 bg-red-100 p-4 rounded-lg">{error}</p>
