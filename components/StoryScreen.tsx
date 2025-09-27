@@ -116,12 +116,13 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
       textToRead = story.sentences[currentSentenceIndex];
     }
     
+    console.log(textToRead);
     setFlowState('SPEAKING');
     try {
       speak(textToRead, () => {
           startRecording();
           setFlowState('LISTENING');
-      }, false, voice, isWord);
+      }, false, voice);
     } catch (error) {
       console.error("TTS failed, attempting to continue:", error);
       setFlowState('IDLE');
@@ -344,25 +345,25 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
   };
 
   const handleWordClickForPhonemes = async (word: string) => {
-  if (readingMode !== ReadingMode.PHONEME || isSpeaking || isLoadingPhonemes) return;
+      if (readingMode !== ReadingMode.PHONEME || isSpeaking || isLoadingPhonemes) return;
 
-  cancel();
-  setIsLoadingPhonemes(true);
-  setPhonemeData({ word, phonemes: ['...'] }); // Show loading state
+      cancel();
+      setIsLoadingPhonemes(true);
+      setPhonemeData({ word, phonemes: ['...'] }); // Show loading state
 
-  try {
-      const phonemes = await getPhonemesForWord(word);
-      setPhonemeData({ word, phonemes });
+      try {
+          const phonemes = await getPhonemesForWord(word);
+          setPhonemeData({ word, phonemes });
 
-      // Just speak the word at normal speed.
-      speak(word, undefined, voice, true);
+          // Just speak the word at normal speed.
+          speak(word, undefined, voice, true);
 
-  } catch (e) {
-      console.error("Error in handleWordClickForPhonemes:", e);
-      setPhonemeData({ word, phonemes: ['Error'] });
-  } finally {
-      setIsLoadingPhonemes(false);
-  }
+      } catch (e) {
+          console.error("Error in handleWordClickForPhonemes:", e);
+          setPhonemeData({ word, phonemes: ['Error'] });
+      } finally {
+          setIsLoadingPhonemes(false);
+      }
   };
 
 

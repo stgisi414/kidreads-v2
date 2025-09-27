@@ -41,6 +41,7 @@ export const useTextToSpeech = (): TextToSpeechHook => {
     isWord: boolean = false,
     autoPlay: boolean = true // Add autoPlay parameter
   ): Promise<{duration: number, audioContent: string | null, play: () => void}> => {
+    console.log("speak: " + text);
     if (isSpeaking || isLoading) {
       return { duration: 0, audioContent: null, play: () => {} };
     }
