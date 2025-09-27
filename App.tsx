@@ -1,6 +1,7 @@
-// stgisi414/kidreads-v2/kidreads-v2-5a75318aefcd07c9007480bfe0f89caabf4d23fb/App.tsx
 // stgisi414/kidreads-v2/kidreads-v2-481bdc4553ad75bdafafd2b9a8d9541c82717d7f/App.tsx
 import React, { useState, useCallback, useEffect } from 'react';
+import type { User } from 'firebase/auth';
+import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from './firebase';
 import * as Tone from 'tone';
 import type { Story } from './types';
@@ -8,8 +9,6 @@ import HomeScreen from './components/HomeScreen';
 import StoryScreen from './components/StoryScreen';
 import Header from './components/Header';
 import { generateStoryAndIllustration } from './services/geminiService';
-import type { User } from 'firebase/auth';
-import { onAuthStateChanged } from 'firebase/auth';
 
 type Screen = 'home' | 'story';
 
