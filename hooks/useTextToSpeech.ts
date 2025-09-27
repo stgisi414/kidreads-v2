@@ -1,7 +1,8 @@
+// stgisi414/kidreads-v2/kidreads-v2-5a75318aefcd07c9007480bfe0f89caabf4d23fb/hooks/useTextToSpeech.ts
 import { useState, useCallback, useRef, useEffect } from 'react';
+import * as Tone from 'tone';
 import { getTextToSpeechAudio } from '../services/geminiService';
 
-// Helper function to decode base64 string to an ArrayBuffer
 const base64ToArrayBuffer = (base64: string) => {
   const binaryString = window.atob(base64);
   const len = binaryString.length;
@@ -13,7 +14,7 @@ const base64ToArrayBuffer = (base64: string) => {
 };
 
 interface TextToSpeechHook {
-  speak: (text: string, onEnd?: () => void, voice?: string, isWord?: boolean) => Promise<void>;
+  speak: (text: string, onEnd?: () => void, voice?: string, isWord?: boolean, autoPlay?: boolean) => Promise<{duration: number, audioContent: string | null, play: () => void}>;
   cancel: () => void;
   isSpeaking: boolean;
   isLoading: boolean;
@@ -22,13 +23,13 @@ interface TextToSpeechHook {
 export const useTextToSpeech = (): TextToSpeechHook => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const playerRef = useRef<Tone.Player | null>(null);
 
   const cancel = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.src = '';
-      audioRef.current = null;
+    if (playerRef.current) {
+      playerRef.current.stop();
+      playerRef.current.dispose();
+      playerRef.current = null;
     }
     setIsSpeaking(false);
     setIsLoading(false);
@@ -39,9 +40,8 @@ export const useTextToSpeech = (): TextToSpeechHook => {
     onEnd?: () => void,
     voice: string = 'Leda',
     isWord: boolean = false,
-    autoPlay: boolean = true // Add autoPlay parameter
+    autoPlay: boolean = true
   ): Promise<{duration: number, audioContent: string | null, play: () => void}> => {
-    console.log("speak: " + text);
     if (isSpeaking || isLoading) {
       return { duration: 0, audioContent: null, play: () => {} };
     }
@@ -52,43 +52,28 @@ export const useTextToSpeech = (): TextToSpeechHook => {
       const { audioContent } = await getTextToSpeechAudio(text, voice, isWord);
       if (!audioContent) throw new Error("No audio content received.");
 
-      const audioBuffer = base64ToArrayBuffer(audioContent);
-      const audioBlob = new Blob([audioBuffer], { type: 'audio/mpeg' });
-      const audioUrl = URL.createObjectURL(audioBlob);
+      const audioBuffer = await Tone.context.decodeAudioData(base64ToArrayBuffer(audioContent));
 
       return new Promise((resolve) => {
-          const audio = new Audio(audioUrl);
-          audioRef.current = audio;
-
+          const player = new Tone.Player(audioBuffer).toDestination();
+          playerRef.current = player;
+          
           const play = () => {
-            audio.play().catch(e => console.error("Error playing audio:", e));
+            player.start();
+            setIsSpeaking(true);
+          };
+
+          player.onstop = () => {
+            setIsSpeaking(false);
+            if (onEnd) onEnd();
+            player.dispose();
           };
           
-          audio.onloadedmetadata = () => {
-              setIsLoading(false);
-              if (autoPlay) {
-                  play();
-              }
-              resolve({ duration: audio.duration, audioContent, play });
-          };
-
-          audio.onplay = () => {
-            setIsSpeaking(true);
+          setIsLoading(false);
+          if (autoPlay) {
+              play();
           }
-
-          audio.onended = () => {
-              setIsSpeaking(false);
-              if (onEnd) onEnd();
-              URL.revokeObjectURL(audioUrl);
-          };
-
-          audio.onerror = (e) => {
-              console.error("Audio playback error:", e);
-              setIsLoading(false);
-              setIsSpeaking(false);
-              URL.revokeObjectURL(audioUrl);
-              resolve({ duration: 0, audioContent: null, play: () => {} });
-          };
+          resolve({ duration: audioBuffer.duration, audioContent, play });
       });
 
     } catch (error) {

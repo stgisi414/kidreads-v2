@@ -6,8 +6,11 @@ import Icon from './Icon';
 import { getPhonemesForWord, transcribeAudio, getTimedTranscript, checkWordMatch } from '../services/geminiService';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
 import QuizModal from './QuizModal';
+import { saveStory, updateStory } from '../services/firestoreService';
+import type { User } from 'firebase/auth';
 
 type StoryScreenProps = {
+  user: User | null;
   story: Story;
   onGoHome: () => void;
   voice: string;
@@ -45,7 +48,7 @@ const calculateSimilarity = (str1: string, str2: string) => {
     return similarity;
 };
 
-const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => {
+const StoryScreen: React.FC<StoryScreenProps> = ({ story, user, onGoHome, voice }) => {
   const [readingMode, setReadingMode] = useState<ReadingMode>(ReadingMode.SENTENCE);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
@@ -83,17 +86,11 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
   }, [story.id]);
 
   const handleSaveStory = () => {
-    if (isStorySaved) return;
+    if (isStorySaved || !user) return;
 
-    const savedStories: Story[] = JSON.parse(localStorage.getItem('savedStories') || '[]');
-    
-    // Use the story object directly, which has a stable ID from App.tsx
-    const storyToSave = { ...currentStory };
-    
-    const newSavedStories = [storyToSave, ...savedStories].slice(0, 10);
-    
-    localStorage.setItem('savedStories', JSON.stringify(newSavedStories));
-    setIsStorySaved(true);
+    saveStory(user.uid, currentStory).then(() => {
+      setIsStorySaved(true);
+    });
   };
 
   useEffect(() => {
@@ -368,6 +365,8 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
 
 
   const handleQuizComplete = useCallback((results: Omit<QuizResult, 'date'>) => {
+    if (!user) return;
+
     const newQuizResults: QuizResult = {
       ...results,
       date: new Date().toISOString(),
@@ -376,9 +375,8 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
     const updatedStory = { ...currentStory, quizResults: newQuizResults };
     setCurrentStory(updatedStory);
 
-    const savedStories: Story[] = JSON.parse(localStorage.getItem('savedStories') || '[]');
-    const newSavedStories = savedStories.map(s => s.id === updatedStory.id ? updatedStory : s);
-    localStorage.setItem('savedStories', JSON.stringify(newSavedStories));
+     // Update the story in Firestore
+    updateStory(user.uid, updatedStory);
   }, [currentStory]);
 
   return (
@@ -434,8 +432,8 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, onGoHome, voice }) => 
                 )}
             </div>
 
-              <button onClick={handleSaveStory} disabled={isStorySaved} className="px-6 py-3 bg-green-500 text-white rounded-full font-bold text-lg hover:bg-green-600 transition-transform hover:scale-105 shadow-lg disabled:bg-gray-400 disabled:cursor-not-allowed">
-                  {isStorySaved ? 'Saved!' : 'Save Story'}
+              <button onClick={handleSaveStory} disabled={isStorySaved || !user} className="px-6 py-3 bg-green-500 text-white rounded-full font-bold text-lg hover:bg-green-600 transition-transform hover:scale-105 shadow-lg disabled:bg-gray-400 disabled:cursor-not-allowed">
+                  {isStorySaved ? 'Saved!' : (user ? 'Save Story' : 'Login to Save')}
               </button>
 
               {(flowState === 'INITIAL' || flowState === 'FINISHED') && readingMode !== ReadingMode.PHONEME && readingMode !== ReadingMode.QUIZ && (

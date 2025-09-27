@@ -7,8 +7,11 @@ import { transcribeAudio } from '../services/geminiService';
 import SavedStoriesModal from './SavedStoriesModal';
 import type { Story } from '../types';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
+import { getSavedStories, deleteStory } from '../services/firestoreService';
+import type { User } from 'firebase/auth';
 
 type HomeScreenProps = {
+  user: User | null;
   onCreateStory: (topic: string) => void;
   onLoadStory: (story: Story) => void;
   isLoading: boolean;
@@ -18,7 +21,7 @@ type HomeScreenProps = {
   onVoiceChange: (voice: 'Leda' | 'Orus') => void;
 };
 
-const HomeScreen: React.FC<HomeScreenProps> = ({ onCreateStory, onLoadStory, isLoading, loadingMessage, error, voice, onVoiceChange }) => {
+const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStory, isLoading, loadingMessage, error, voice, onVoiceChange }) => {
   const { recorderState, startRecording, stopRecording, permissionError } = useAudioRecorder();
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isStoriesModalVisible, setStoriesModalVisible] = useState(false);
@@ -31,6 +34,22 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ onCreateStory, onLoadStory, isL
     Press the <span class="font-semibold text-red-600">checkmark</span> when you're done!`;
     
   const instructionsText = "Press the button and say something like 'a happy little dog' or 'a cat flying to the moon'. Press the checkmark when you're done!";
+  
+  // Fetch stories when user logs in or changes
+  useEffect(() => {
+    if (user) {
+      getSavedStories(user.uid).then(setSavedStories);
+    } else {
+      setSavedStories([]); // Clear stories if logged out
+    }
+  }, [user]);
+
+  const handleDeleteStory = (storyId: number) => {
+    if (!user) return;
+    deleteStory(user.uid, storyId).then(() => {
+      setSavedStories(prev => prev.filter(story => story.id !== storyId));
+    });
+  };
 
   useEffect(() => {
     const stories = JSON.parse(localStorage.getItem('savedStories') || '[]');
@@ -148,8 +167,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ onCreateStory, onLoadStory, isL
         <Icon name={isListening ? "check" : "microphone"} className="w-20 h-20" />
       </button>
 
-      <button onClick={() => setStoriesModalVisible(true)} className="mt-8 px-6 py-3 bg-purple-500 text-white rounded-full font-bold text-lg hover:bg-purple-600 transition-transform hover:scale-105 shadow-lg">
-        My Stories
+      <button onClick={() => setStoriesModalVisible(true)} disabled={!user} className="mt-8 px-6 py-3 bg-purple-500 text-white rounded-full font-bold text-lg hover:bg-purple-600 transition-transform hover:scale-105 shadow-lg">
+        {user ? 'My Stories' : 'Login to see your stories'}
       </button>
 
       {error && (

@@ -1,11 +1,14 @@
-// stgisi414/kidreads-v2/kidreads-v2-5096bbab39cec5b36bff0af2170f45b4a523b759/App.tsx
+// stgisi414/kidreads-v2/kidreads-v2-5a75318aefcd07c9007480bfe0f89caabf4d23fb/App.tsx
 import React, { useState, useCallback, useEffect } from 'react';
-import * as Tone from 'tone'; // <-- Add this line
+import * as Tone from 'tone';
 import type { Story } from './types';
 import HomeScreen from './components/HomeScreen';
 import StoryScreen from './components/StoryScreen';
 import Header from './components/Header';
 import { generateStoryAndIllustration } from './services/geminiService';
+import type { User } from 'firebase/auth';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from './firebase';
 
 type Screen = 'home' | 'story';
 
@@ -15,18 +18,32 @@ const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [loadingMessage, setLoadingMessage] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
-  
-  // Load voice from localStorage on initial render, default to 'Leda'
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+   // Listen for authentication state changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setAuthLoading(false);
+    });
+    return () => unsubscribe(); // Cleanup subscription on unmount
+  }, []);
+
   const [voice, setVoice] = useState<string>(() => {
     return localStorage.getItem('selectedVoice') || 'Leda';
   });
 
-  // Save voice to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem('selectedVoice', voice);
   }, [voice]);
 
   const handleCreateStory = useCallback(async (topic: string) => {
+    // Start Tone.js audio context on user interaction
+    if (Tone.context.state !== 'running') {
+      await Tone.start();
+    }
+    
     setIsLoading(true);
     setLoadingMessage('Thinking of a wonderful story...');
     setError(null);
@@ -62,7 +79,11 @@ const App: React.FC = () => {
     setError(null);
   }, []);
 
-  const handleLoadStory = useCallback((storyToLoad: Story) => {
+  const handleLoadStory = useCallback(async (storyToLoad: Story) => {
+    // Start Tone.js audio context on user interaction
+    if (Tone.context.state !== 'running') {
+      await Tone.start();
+    }
     setStory(storyToLoad);
     setScreen('story');
   }, []);
@@ -73,6 +94,7 @@ const App: React.FC = () => {
       <main className="w-full max-w-4xl mx-auto flex-grow flex items-center justify-center">
         {screen === 'home' && (
           <HomeScreen
+            user={user}
             onCreateStory={handleCreateStory}
             onLoadStory={handleLoadStory}
             isLoading={isLoading}
@@ -83,8 +105,8 @@ const App: React.FC = () => {
           />
         )}
         {screen === 'story' && story && (
-          <StoryScreen story={story} onGoHome={handleGoHome} voice={voice} />
-        )}
+          <StoryScreen story={story} onGoHome={handleGoHome} voice={voice} user={user} />
+        )} />
       </main>
     </div>
   );
