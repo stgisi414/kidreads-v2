@@ -347,8 +347,9 @@ export const transcribeAudio = onRequest(
           content: audioBytes,
         };
         const config = {
-          // Change encoding to WEBM_OPUS
+          // Ensure encoding is WEBM_OPUS
           encoding: "WEBM_OPUS" as const,
+          sampleRateHertz: 48000, // This is required for WEBM_OPUS
           languageCode: "en-US",
           model: "latest_long",
         };

@@ -102,6 +102,7 @@ const App: React.FC = () => {
             error={error}
             voice={voice}
             onVoiceChange={setVoice}
+            setError={setError}
           />
         )}
         {screen === 'story' && story && (
