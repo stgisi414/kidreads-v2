@@ -404,7 +404,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
 
   return (
     <div className="flex flex-col gap-4 w-full animate-fade-in">
-        {isQuizVisible && <QuizModal questions={story.quiz} onClose={() => setIsQuizVisible(false)} onQuizComplete={handleQuizComplete} voice={voice} isSpeaking={isSpeaking} />}
+        {isQuizVisible && <QuizModal questions={story.quiz} onClose={() => setIsQuizVisible(false)} onQuizComplete={handleQuizComplete} voice={voice} isSpeaking={isSpeaking} speakingRate={speakingRate} />}
         <div className="bg-white p-6 rounded-3xl shadow-xl">
             <h2
                 className={`text-4xl font-black text-center text-blue-600 mb-4 ${isSpeaking ? 'cursor-not-allowed' : 'cursor-pointer'}`}

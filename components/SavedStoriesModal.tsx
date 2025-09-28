@@ -1,9 +1,9 @@
-// stgisi414/kidreads-v2/kidreads-v2-5096bbab39cec5b36bff0af2170f45b4a523b759/components/SavedStoriesModal.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { Story } from '../types';
 import Icon from './Icon';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
 import QuizResultsModal from './QuizResultsModal';
+import Spinner from './Spinner'; // Import the Spinner component
 
 type SavedStoriesModalProps = {
   savedStories: Story[];
@@ -17,6 +17,18 @@ type SavedStoriesModalProps = {
 const SavedStoriesModal: React.FC<SavedStoriesModalProps> = ({ savedStories, onLoadStory, onDeleteStory, onClose, voice, speakingRate }) => {
   const { speak, isSpeaking } = useTextToSpeech();
   const [selectedStoryForResults, setSelectedStoryForResults] = useState<Story | null>(null);
+  const [imagesLoaded, setImagesLoaded] = useState(0);
+
+  const allImagesLoaded = imagesLoaded === savedStories.length;
+
+  // Reset image loaded count if the stories change
+  useEffect(() => {
+    setImagesLoaded(0);
+  }, [savedStories]);
+
+  const handleImageLoad = () => {
+    setImagesLoaded(prev => prev + 1);
+  };
 
   return (
     <>
@@ -30,23 +42,31 @@ const SavedStoriesModal: React.FC<SavedStoriesModalProps> = ({ savedStories, onL
           </button>
           <h2 className="text-4xl font-black text-blue-600 mb-6 text-center">My Saved Stories</h2>
           
+          {!allImagesLoaded && <Spinner message="Loading saved stories..." />}
+
           {savedStories.length > 0 ? (
-            <ul className="space-y-4 max-h-96 overflow-y-auto">
+            <ul className={`space-y-4 max-h-96 overflow-y-auto ${!allImagesLoaded ? 'hidden' : ''}`}>
               {savedStories.map(story => (
               <li key={story.id} className="flex flex-col md:flex-row md:items-center justify-between p-4 bg-slate-100 rounded-lg">
                 <div className="flex items-center w-full mb-2 md:mb-0">
-                  <img src={story.illustration} alt={story.title} className="w-16 h-16 rounded-md object-cover mr-4" />
+                  <img 
+                    src={story.illustration} 
+                    alt={story.title} 
+                    className="w-16 h-16 rounded-md object-cover mr-4"
+                    onLoad={handleImageLoad}
+                    onError={handleImageLoad} // Also count errors as "loaded" to not block forever
+                  />
                   <span
                       className={`font-bold text-lg text-slate-700 flex-grow ${isSpeaking ? 'cursor-not-allowed' : 'cursor-pointer'}`}
-                      onClick={() => !isSpeaking && speak(story.title, undefined, voice, false, true, speakingRate)}
+                      onClick={() => !isSpeaking && allImagesLoaded && speak(story.title, undefined, voice, false, true, speakingRate)}
                   >
                     {story.title}
                   </span>
                 </div>
                 <div className="flex gap-2 justify-end w-full md:w-auto">
-                  <button onClick={() => !isSpeaking && setSelectedStoryForResults(story)} disabled={isSpeaking} className="p-2 bg-purple-500 text-white rounded-full hover:bg-purple-600 transition disabled:bg-gray-400"><Icon name="results" className="w-6 h-6"/></button>
-                  <button onClick={() => !isSpeaking && onLoadStory(story)} disabled={isSpeaking} className="p-2 bg-green-500 text-white rounded-full hover:bg-green-600 transition disabled:bg-gray-400"><Icon name="play" className="w-6 h-6"/></button>
-                  <button onClick={() => onDeleteStory(story.id)} className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition"><Icon name="trash" className="w-6 h-6"/></button>
+                  <button onClick={() => !isSpeaking && setSelectedStoryForResults(story)} disabled={isSpeaking || !allImagesLoaded} className="p-2 bg-purple-500 text-white rounded-full hover:bg-purple-600 transition disabled:bg-gray-400"><Icon name="results" className="w-6 h-6"/></button>
+                  <button onClick={() => !isSpeaking && onLoadStory(story)} disabled={isSpeaking || !allImagesLoaded} className="p-2 bg-green-500 text-white rounded-full hover:bg-green-600 transition disabled:bg-gray-400"><Icon name="play" className="w-6 h-6"/></button>
+                  <button onClick={() => onDeleteStory(story.id)} disabled={!allImagesLoaded} className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition disabled:bg-gray-400"><Icon name="trash" className="w-6 h-6"/></button>
                 </div>
               </li>
             ))}
