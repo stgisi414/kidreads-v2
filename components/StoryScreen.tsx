@@ -103,7 +103,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
         setFlowState('INITIAL');
         setCurrentSentenceIndex(0);
         setCurrentWordIndex(0);
-      }, voice, false, true, speakingRate);
+      }, voice, false, true, 1.00);
     }
   }, [flowState, speak, voice, speakingRate]);
 
@@ -179,7 +179,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
                            setFlowState('FINISHED');
                        }
                   }
-              }, voice, false, true, speakingRate);
+              }, voice, false, true, 1.00);
             } catch (error) {
               console.error("TTS failed, attempting to continue:", error);
               setFlowState('IDLE');
@@ -199,12 +199,12 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
                         setFlowState('FINISHED');
                     }
                     setFlowState('IDLE');
-                }, voice, false, true, speakingRate);
+                }, voice, false, true, 1.00);
             } else {
                 speak("Let's try again!", () => {
                   setFeedback(null);
                   setFlowState('IDLE');
-                }, voice, false, true, speakingRate);
+                }, voice, false, true, 1.00);
             }
         }
       } catch (e) {
@@ -214,7 +214,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
         speak("Let's try again!", () => {
             setFeedback(null);
             setFlowState('IDLE');
-        }, voice, false, true, speakingRate);
+        }, voice, false, true, 1.00);
       }
     } else {
        setFlowState('IDLE');

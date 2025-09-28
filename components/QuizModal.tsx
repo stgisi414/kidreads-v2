@@ -36,9 +36,9 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, onQuizComplet
     setIsCorrect(correct);
     if (correct) {
       setScore(s => s + 1);
-      speak("That's right!", undefined, voice, false, true, speakingRate);
+      speak("That's right!", undefined, voice, false, true, 1.00);
     } else {
-      speak("Not quite, let's try the next one.", undefined, voice, false, true, speakingRate);
+      speak("Not quite, let's try the next one.", undefined, voice, false, true, 1.00);
     }
 
     setUserAnswers(prev => [...prev, {
