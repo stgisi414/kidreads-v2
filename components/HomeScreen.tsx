@@ -11,6 +11,7 @@ import { getSavedStories, deleteStory } from '../services/firestoreService';
 import type { User } from 'firebase/auth';
 import { loginWithGoogle, logout } from '../services/authService';
 import * as Tone from 'tone';
+import ErrorBoundary from './ErrorBoundary';
 
 type HomeScreenProps = {
   onCreateStory: (topic: string) => void;
@@ -213,14 +214,17 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
     <>
       <div className="flex flex-col items-center justify-center text-center p-6 rounded-3xl bg-white shadow-lg animate-fade-in">
         {isStoriesModalVisible && (
-          <SavedStoriesModal
-            savedStories={savedStories}
-            onLoadStory={onLoadStory}
-            onDeleteStory={handleDeleteStory}
-            onClose={() => setStoriesModalVisible(false)}
-            voice={voice}
-            speakingRate={speakingRate}
-          />
+          <ErrorBoundary>
+            <SavedStoriesModal
+              savedStories={savedStories}
+              onLoadStory={onLoadStory}
+              onDeleteStory={handleDeleteStory}
+              onClose={() => setStoriesModalVisible(false)}
+              voice={voice}
+              speakingRate={speakingRate}
+              user={user}
+            />
+          </ErrorBoundary>
         )}
         <h1 className="text-5xl md:text-6xl font-black text-blue-600 mb-2 flex items-center justify-center">
           <video autoPlay loop muted playsInline className="w-16 h-16 md:w-20 md:h-20 mr-2 md:mr-4">

@@ -1,7 +1,7 @@
 import React from 'react';
 
 type IconProps = {
-  name: 'microphone' | 'home' | 'play' | 'star' | 'check' | 'retry' | 'trash' | 'results' | 'login' | 'logout' | 'stories' | 'save' | 'close' | 'book' | 'quiz' | 'phoneme' | 'speaker' | 'idea';
+  name: 'microphone' | 'home' | 'play' | 'star' | 'check' | 'retry' | 'trash' | 'results' | 'login' | 'logout' | 'stories' | 'save' | 'close' | 'book' | 'quiz' | 'phoneme' | 'speaker' | 'idea' | 'bookmark';
   className?: string;
 };
 
@@ -98,6 +98,11 @@ const Icon: React.FC<IconProps> = ({ name, className = 'w-6 h-6' }) => {
         <path d="M9 18h6"/>
         <path d="M10 22h4"/>
       </svg>
+    ),
+    bookmark: (
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 3v18l9-6 9 6V3H3z" />
+        </svg>
     )
   };
 

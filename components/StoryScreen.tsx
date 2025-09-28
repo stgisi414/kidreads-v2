@@ -10,6 +10,7 @@ import { saveStory, updateStory } from '../services/firestoreService';
 import type { User } from 'firebase/auth';
 import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../firebase';
+import ErrorBoundary from './ErrorBoundary';
 
 type StoryScreenProps = {
   user: User | null;
@@ -404,7 +405,18 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
 
   return (
     <div className="flex flex-col gap-4 w-full animate-fade-in">
-        {isQuizVisible && <QuizModal questions={story.quiz} onClose={() => setIsQuizVisible(false)} onQuizComplete={handleQuizComplete} voice={voice} isSpeaking={isSpeaking} speakingRate={speakingRate} />}
+        {isQuizVisible && (
+            <ErrorBoundary>
+              <QuizModal
+                questions={story.quiz}
+                onClose={() => setIsQuizVisible(false)}
+                onQuizComplete={handleQuizComplete}
+                voice={voice}
+                isSpeaking={isSpeaking}
+                speakingRate={speakingRate}
+              />
+            </ErrorBoundary>
+        )}
         <div className="bg-white p-6 rounded-3xl shadow-xl">
             <h2
                 className={`text-4xl font-black text-center text-blue-600 mb-4 ${isSpeaking ? 'cursor-not-allowed' : 'cursor-pointer'}`}

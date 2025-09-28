@@ -4,6 +4,7 @@ import Icon from './Icon';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
 import QuizResultsModal from './QuizResultsModal';
 import Spinner from './Spinner'; // Import the Spinner component
+import type { User } from 'firebase/auth';
 
 type SavedStoriesModalProps = {
   savedStories: Story[];
@@ -12,12 +13,14 @@ type SavedStoriesModalProps = {
   onClose: () => void;
   voice: string;
   speakingRate: number;
+  user: User | null; // Add user to props
 };
 
-const SavedStoriesModal: React.FC<SavedStoriesModalProps> = ({ savedStories, onLoadStory, onDeleteStory, onClose, voice, speakingRate }) => {
+const SavedStoriesModal: React.FC<SavedStoriesModalProps> = ({ user, savedStories, onLoadStory, onDeleteStory, onClose, voice, speakingRate }) => {
   const { speak, isSpeaking } = useTextToSpeech();
   const [selectedStoryForResults, setSelectedStoryForResults] = useState<Story | null>(null);
   const [imagesLoaded, setImagesLoaded] = useState(0);
+  const [copiedLink, setCopiedLink] = useState<number | null>(null);
 
   const allImagesLoaded = imagesLoaded === savedStories.length;
 
@@ -28,6 +31,15 @@ const SavedStoriesModal: React.FC<SavedStoriesModalProps> = ({ savedStories, onL
 
   const handleImageLoad = () => {
     setImagesLoaded(prev => prev + 1);
+  };
+
+  const handleShareStory = (storyId: number) => {
+    if (!user) return;
+    const shareLink = `${window.location.origin}/story/${user.uid}/${storyId}`;
+    navigator.clipboard.writeText(shareLink).then(() => {
+        setCopiedLink(storyId);
+        setTimeout(() => setCopiedLink(null), 2000); // Reset after 2 seconds
+    });
   };
 
   return (
@@ -64,6 +76,9 @@ const SavedStoriesModal: React.FC<SavedStoriesModalProps> = ({ savedStories, onL
                   </span>
                 </div>
                 <div className="flex gap-2 justify-end w-full md:w-auto">
+                    <button onClick={() => handleShareStory(story.id)} disabled={isSpeaking || !allImagesLoaded} className="p-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition disabled:bg-gray-400">
+                      {copiedLink === story.id ? <Icon name="check" className="w-6 h-6"/> : '🔗'}
+                    </button>
                   <button onClick={() => !isSpeaking && setSelectedStoryForResults(story)} disabled={isSpeaking || !allImagesLoaded} className="p-2 bg-purple-500 text-white rounded-full hover:bg-purple-600 transition disabled:bg-gray-400"><Icon name="results" className="w-6 h-6"/></button>
                   <button onClick={() => !isSpeaking && onLoadStory(story)} disabled={isSpeaking || !allImagesLoaded} className="p-2 bg-green-500 text-white rounded-full hover:bg-green-600 transition disabled:bg-gray-400"><Icon name="play" className="w-6 h-6"/></button>
                   <button onClick={() => onDeleteStory(story.id)} disabled={!allImagesLoaded} className="p-2 bg-red-500 text-white rounded-full hover:bg-red-600 transition disabled:bg-gray-400"><Icon name="trash" className="w-6 h-6"/></button>
