@@ -11,19 +11,13 @@ const abbreviations = new Set([
 export const splitSentences = (text: string): string[] => {
   if (!text) return [];
 
-  const sentences = text.split(/(?<!\b(?:Dr|Mr|Mrs|Ms|Jr|Sr)\.)\s*([.!?])\s*/g);
+  // Improved regex to avoid splitting on known abbreviations.
+  const regex = new RegExp(`(?<!\\b(${Array.from(abbreviations).join('|')}))[.!?]\\s+`, 'g');
   
-  const result: string[] = [];
-  for (let i = 0; i < sentences.length; i += 2) {
-    let sentence = sentences[i];
-    const punctuation = sentences[i + 1];
-    if (sentence && punctuation) {
-      sentence += punctuation;
-    }
-    if (sentence) {
-      result.push(sentence.trim());
-    }
-  }
-  
-  return result.length > 0 ? result : [text];
+  // First, we split the text into parts using the improved regex.
+  // Then, we'll reconstruct the sentences to ensure punctuation is correctly placed.
+  const sentences = text.replace(regex, '$&\u2028').split('\u2028');
+
+  // Trim each sentence and filter out any empty strings that might result from the split.
+  return sentences.map(s => s.trim()).filter(Boolean);
 };
