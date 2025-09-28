@@ -20,8 +20,6 @@ interface TextToSpeechHook {
   isLoading: boolean;
 }
 
-console.log("speaking rate: " + speakingRate);
-
 export const useTextToSpeech = (): TextToSpeechHook => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -45,6 +43,8 @@ export const useTextToSpeech = (): TextToSpeechHook => {
     autoPlay: boolean = true,
     speakingRate: number = 1.0 // Add speakingRate here
   ): Promise<{duration: number, audioContent: string | null, play: () => void}> => {
+    console.log("speaking rate: " + speakingRate);
+    
     if (isSpeaking || isLoading) {
       return { duration: 0, audioContent: null, play: () => {} };
     }
