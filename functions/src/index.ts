@@ -1,7 +1,7 @@
 // functions/src/index.ts
 
 import { onRequest, Request as FunctionsRequest } from "firebase-functions/v2/https";
-import { onDocumentDeleted } from "firebase-functions/v2/firestore"; 
+import { onDocumentDeleted } from "firebase-functions/v2/firestore";
 import { Response as ExpressResponse } from "express";
 import * as logger from "firebase-functions/logger";
 import cors from "cors";
@@ -55,7 +55,8 @@ export const generateStoryAndIllustration = onRequest(
   { secrets: ["API_KEY"], maxInstances: 10, region: "us-central1" },
   async (request, response: ExpressResponse) => {
     corsHandler(request, response, async () => {
-        const { topic } = request.body;
+        // FIX: The topic is nested inside request.body.data
+        const { topic } = request.body.data;
         if (!topic) {
             response.status(400).send({ error: "Topic is required." });
             return;
@@ -161,7 +162,8 @@ export const generateStoryAndIllustration = onRequest(
         await file.makePublic();
         const illustrationUrl = file.publicUrl();
 
-        response.status(200).send({ title, text: storyText, illustration: illustrationUrl, quiz });
+        // FIX: The response needs to be nested in a 'data' object
+        response.status(200).send({ data: { title, text: storyText, illustration: illustrationUrl, quiz } });
 
       } catch (error) {
         logger.error("Error in generateStoryAndIllustration:", error);
@@ -175,7 +177,8 @@ export const getPhonemesForWord = onRequest(
   { secrets: ["API_KEY"], maxInstances: 10, region: "us-central1" },
   (request, response: ExpressResponse) => {
     corsHandler(request, response, async () => {
-      const { word } = request.body;
+      // FIX: The word is nested inside request.body.data
+      const { word } = request.body.data;
       if (!word) {
         response.status(400).send({ error: "Word is required." });
         return;
@@ -215,72 +218,11 @@ export const getPhonemesForWord = onRequest(
           throw new Error("Could not get phonemes for the word.");
         }
         const phonemes = phonemeText.split("-").filter((p: string) => p);
-        response.status(200).send(phonemes);
+        // FIX: The response needs to be nested in a 'data' object
+        response.status(200).send({ data: phonemes });
       } catch (error) {
         logger.error("Error in getPhonemesForWord:", error);
         response.status(500).send({ error: "Could not get phonemes for the word." });
-      }
-    });
-  },
-);
-
-export const geminiTTS = onRequest(
-  { secrets: ["API_KEY"], region: "us-central1" },
-  (request: FunctionsRequest, response: ExpressResponse) => {
-    corsHandler(request, response, async () => {
-      if (request.method !== "POST") {
-        return response.status(405).send("Method Not Allowed");
-      }
-      const { text, slow, voice, isWord } = request.body;
-      if (!text) {
-        return response.status(400).send("Bad Request: Missing text");
-      }
-      const GEMINI_API_KEY = process.env.API_KEY;
-      if (!GEMINI_API_KEY) {
-        return response.status(500).send("Internal Server Error: API key not configured.");
-      }
-      try {
-        const ttsUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${GEMINI_API_KEY}`;
-        
-        let speechText = `<speak>${text}</speak>`;
-        if (slow) {
-          speechText = `<speak><prosody rate="slow">${text}</prosody></speak>`;
-        } else if (isWord) {
-          speechText = `<speak><break time="250ms"/>${text}</speak>`;
-        }
-
-        const payload = {
-          "model": "gemini-2.5-flash-preview-tts",
-          "contents": [{ "parts": [{ "text": speechText }] }],
-          "generationConfig": {
-            "responseModalities": ["AUDIO"],
-            "speechConfig": {
-              "voiceConfig": {
-                "prebuiltVoiceConfig": { "voiceName": voice || "Leda" },
-              },
-            },
-          },
-        };
-        const ttsResponse = await fetch(ttsUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        if (!ttsResponse.ok) {
-          const errorText = await ttsResponse.text();
-          logger.error("Error from Gemini TTS API:", errorText);
-          return response.status(ttsResponse.status).send(errorText);
-        }
-        const result = await ttsResponse.json();
-        const audioPart = result?.candidates?.[0]?.content?.parts?.find((part: any) => part.inlineData);
-        if (audioPart?.inlineData) {
-          return response.status(200).send({ audioContent: audioPart.inlineData.data });
-        } else {
-          throw new Error("No audio data received from TTS API.");
-        }
-      } catch (error: any) {
-        logger.error(`Error generating TTS for text "${text}":`, error.message);
-        return response.status(500).send("Failed to generate audio.");
       }
     });
   },
@@ -294,7 +236,8 @@ export const googleCloudTTS = onRequest(
         return response.status(405).send("Method Not Allowed");
       }
 
-      const { text, voice, isWord, slow } = request.body;
+      // FIX: The data is nested inside request.body.data
+      const { text, voice, isWord, slow } = request.body.data;
       if (!text) {
         return response.status(400).send("Bad Request: Missing text");
       }
@@ -320,7 +263,8 @@ export const googleCloudTTS = onRequest(
 
         if (ttsResponse.audioContent) {
           const audioContent = Buffer.from(ttsResponse.audioContent).toString('base64');
-          return response.status(200).send({ audioContent });
+          // FIX: The response needs to be nested in a 'data' object
+          return response.status(200).send({ data: { audioContent } });
         } else {
           throw new Error("No audio data received from Google Cloud TTS API.");
         }
@@ -337,7 +281,8 @@ export const transcribeAudio = onRequest(
   async (request, response) => {
     corsHandler(request, response, async () => {
       try {
-        const audioBytes = request.body.audio;
+        // FIX: The audio data is nested inside request.body.data
+        const audioBytes = request.body.data.audio;
         if (!audioBytes) {
           response.status(400).send("No audio data found in request.");
           return;
@@ -365,7 +310,8 @@ export const transcribeAudio = onRequest(
           ?.map((result: any) => result.alternatives?.[0].transcript)
           .join("\n");
         
-        response.status(200).send({ transcription });
+        // FIX: The response needs to be nested in a 'data' object
+        response.status(200).send({ data: { transcription } });
       } catch (error) {
         logger.error("Error in transcribeAudio:", error);
         response.status(500).send("Error transcribing audio.");
@@ -378,7 +324,8 @@ export const getTimedTranscript = onRequest(
     { secrets: ["API_KEY"], maxInstances: 10, region: "us-central1" },
     async (request, response) => {
       corsHandler(request, response, async () => {
-        const { audio, text } = request.body;
+        // FIX: The data is nested inside request.body.data
+        const { audio, text } = request.body.data;
         if (!audio || !text) {
           response.status(400).send({ error: "Audio data and story text are required." });
           return;
@@ -440,7 +387,8 @@ Example JSON output:
             throw new Error("Could not get transcript for the audio.");
           }
   
-          response.status(200).send({ transcript: JSON.parse(transcript) });
+          // FIX: The response needs to be nested in a 'data' object
+          response.status(200).send({ data: { transcript: JSON.parse(transcript) } });
         } catch (error) {
           logger.error("Error in getTimedTranscript:", error);
           response.status(500).send({ error: "Could not get transcript for the audio." });
@@ -453,7 +401,8 @@ export const checkWordMatch = onRequest(
     { secrets: ["API_KEY"], maxInstances: 10, region: "us-central1" },
     async (request, response) => {
         corsHandler(request, response, async () => {
-            const { transcribedWord, expectedWord } = request.body;
+            // FIX: The data is nested inside request.body.data
+            const { transcribedWord, expectedWord } = request.body.data;
             if (!transcribedWord || !expectedWord) {
                 response.status(400).send({ error: "Transcribed word and expected word are required." });
                 return;
@@ -489,7 +438,8 @@ export const checkWordMatch = onRequest(
                 const data = await apiResponse.json();
                 const matchText = data.candidates?.[0]?.content?.parts?.[0]?.text.trim().toLowerCase();
 
-                response.status(200).send({ isMatch: matchText === 'true' });
+                // FIX: The response needs to be nested in a 'data' object
+                response.status(200).send({ data: { isMatch: matchText === 'true' } });
 
             } catch (error) {
                 logger.error("Error in checkWordMatch:", error);

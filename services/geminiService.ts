@@ -40,6 +40,8 @@ export const transcribeAudio = async (audio: string): Promise<TranscriptionRespo
     const transcriptionPromise = transcribeAudioCallable({ audio });
 
     const result = await Promise.race([transcriptionPromise, timeoutPromise]);
+
+    // This is now correct because the cloud function returns { data: { transcription: '...' } }
     return result.data as TranscriptionResponse;
 };
 
