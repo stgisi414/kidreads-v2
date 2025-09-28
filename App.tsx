@@ -1,4 +1,3 @@
-// stgisi414/kidreads-v2/kidreads-v2-e8690d9da56ed636ba08124032ff46085ec14872/App.tsx
 import React, { useState, useCallback, useEffect } from 'react';
 import type { User } from 'firebase/auth';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -49,14 +48,15 @@ const App: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  useEffect(() => {
-    // Save to localStorage for logged-out users or as a fallback
-    localStorage.setItem('selectedVoice', voice);
-    // If the user is logged in, also save the preference to Firestore
+  const handleVoiceChange = useCallback((newVoice: string) => {
+    setVoice(newVoice);
+    // Always save to localStorage immediately for logged-out users or fallback
+    localStorage.setItem('selectedVoice', newVoice);
+    // Only save to Firestore if the user is logged in.
     if (user) {
-      updateUserPreferences(user.uid, { voice });
+        updateUserPreferences(user.uid, { voice: newVoice });
     }
-  }, [voice, user]);
+  }, [user]);
 
   const handleCreateStory = useCallback(async (topic: string) => {
     if (Tone.context.state !== 'running') {
@@ -124,7 +124,7 @@ const App: React.FC = () => {
             loadingMessage={loadingMessage}
             error={error}
             voice={voice}
-            onVoiceChange={setVoice}
+            onVoiceChange={handleVoiceChange}
             setError={setError}
           />
         ) : story && (

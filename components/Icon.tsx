@@ -1,7 +1,7 @@
 import React from 'react';
 
 type IconProps = {
-  name: 'microphone' | 'home' | 'play' | 'star' | 'check' | 'retry' | 'trash' | 'results' | 'login' | 'logout' | 'stories' | 'save' | 'close' | 'book' | 'quiz' | 'phoneme';
+  name: 'microphone' | 'home' | 'play' | 'star' | 'check' | 'retry' | 'trash' | 'results' | 'login' | 'logout' | 'stories' | 'save' | 'close' | 'book' | 'quiz' | 'phoneme' | 'speaker';
   className?: string;
 };
 
@@ -85,6 +85,11 @@ const Icon: React.FC<IconProps> = ({ name, className = 'w-6 h-6' }) => {
     phoneme: (
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 8.634c.346-.17.346-.67 0-.84l-9.92-4.96a.667.667 0 00-.66 0l-9.92 4.96c-.346.17-.346.67 0 .84l9.92 4.96a.667.667 0 00.66 0l9.92-4.96zM19.114 12.634c.346-.17.346-.67 0-.84l-9.92-4.96a.667.667 0 00-.66 0l-9.92 4.96c-.346.17-.346.67 0 .84l9.92 4.96a.667.667 0 00.66 0l9.92-4.96zM19.114 16.634c.346-.17.346-.67 0-.84l-9.92-4.96a.667.667 0 00-.66 0l-9.92 4.96c-.346.17-.346.67 0 .84l9.92 4.96a.667.667 0 00.66 0l9.92-4.96z" />
+        </svg>
+    ),
+    speaker: (
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.06c1.48-.73 2.5-2.25 2.5-4.03zm-.25-6.23c2.97.86 5.18 3.55 5.25 6.23a8.008 8.008 0 01-5.25 6.23v-2.06c1.8-.81 3.03-2.51 3.03-4.17s-1.23-3.36-3.03-4.17V5.77z"/>
         </svg>
     )
   };

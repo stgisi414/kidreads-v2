@@ -76,12 +76,12 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, onQuizComplet
     if (isCorrect !== null) return;
     setSelectedAnswer(option);
     cancel(); // Stop any other speech
-    speak(option, undefined, false, voice);
+    speak(option, undefined, voice, false);
   };
 
   const handleReadQuestion = () => {
     cancel();
-    speak(currentQuestion.question, undefined, false, voice);
+    speak(currentQuestion.question, undefined, voice, false);
   };
 
   const currentQuestion = questions[currentQuestionIndex];
@@ -107,7 +107,7 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, onQuizComplet
             <div className="flex items-center justify-center gap-4 mb-6">
               <h3 className="text-2xl font-bold text-slate-800 text-center">{currentQuestion.question}</h3>
               <button onClick={handleReadQuestion} disabled={isSpeaking} className="text-blue-500 hover:text-blue-700 disabled:text-gray-400">
-                <Icon name="microphone" className="w-8 h-8"/>
+                <Icon name="speaker" className="w-8 h-8"/>
               </button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">

@@ -50,7 +50,7 @@ const calculateSimilarity = (str1: string, str2: string) => {
 };
 
 const StoryScreen: React.FC<StoryScreenProps> = ({ story, user, onGoHome, voice, isInitiallySaved }) => {
-  const [readingMode, setReadingMode] = useState<ReadingMode>(ReadingMode.SENTENCE);
+  const [readingMode, setReadingMode] = useState<ReadingMode>(ReadingMode.WORD);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
   const [feedback, setFeedback] = useState<Feedback>(null);

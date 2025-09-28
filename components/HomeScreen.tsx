@@ -167,7 +167,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
           />
           {!isListening && (
             <button onClick={handleReadInstructions} disabled={isSpeakingLoading} className="p-2 rounded-full hover:bg-slate-200 transition">
-              <Icon name="microphone" className="w-6 h-6 text-blue-500" />
+              <Icon name="speaker" className="w-6 h-6 text-blue-500" />
             </button>
           )}
         </div>
