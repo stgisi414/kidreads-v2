@@ -99,7 +99,7 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, onQuizComplet
             <p className="text-2xl text-slate-700 mb-6">Your score: <span className="font-bold text-green-500">{score}</span> / {questions.length}</p>
             <div className="flex justify-center gap-4">
               <button onClick={handleRestart} className="flex items-center gap-2 px-6 py-3 bg-blue-500 text-white rounded-full font-bold text-lg hover:bg-blue-600 transition-transform hover:scale-105 shadow-lg"><Icon name="retry" className="w-6 h-6"/>Restart Quiz</button>
-              <button onClick={onClose} className="px-6 py-3 bg-slate-200 text-slate-700 rounded-full font-bold text-lg hover:bg-slate-300 transition">Close</button>
+              <button onClick={onClose} className="flex items-center gap-2 px-6 py-3 bg-slate-200 text-slate-700 rounded-full font-bold text-lg hover:bg-slate-300 transition"><Icon name="close" className="w-6 h-6" />Close</button>
             </div>
           </div>
         ) : (
@@ -137,9 +137,10 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, onQuizComplet
             <button
               onClick={handleAnswerSubmit}
               disabled={!selectedAnswer || isCorrect !== null || isSpeaking}
-              className="w-full px-6 py-4 bg-blue-500 text-white rounded-full font-bold text-xl hover:bg-blue-600 transition-transform hover:scale-105 shadow-lg disabled:bg-gray-400 disabled:cursor-not-allowed disabled:transform-none"
+              className="w-full flex items-center justify-center gap-2 px-6 py-4 bg-blue-500 text-white rounded-full font-bold text-xl hover:bg-blue-600 transition-transform hover:scale-105 shadow-lg disabled:bg-gray-400 disabled:cursor-not-allowed disabled:transform-none"
             >
-              Submit
+              <Icon name="check" className="w-8 h-8" />
+              <span>Submit</span>
             </button>
           </div>
         )}

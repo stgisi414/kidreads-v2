@@ -372,9 +372,9 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user, onGoHome, voice,
     <div className="flex flex-col gap-4 w-full animate-fade-in">
         {isQuizVisible && <QuizModal questions={story.quiz} onClose={() => setIsQuizVisible(false)} onQuizComplete={handleQuizComplete} voice={voice} isSpeaking={isSpeaking} />}
         <div className="bg-white p-6 rounded-3xl shadow-xl">
-            <h2 
-              className={`text-4xl font-black text-center text-blue-600 mb-4 ${isSpeaking ? 'cursor-not-allowed' : 'cursor-pointer'}`} 
-              onClick={() => !isSpeaking && speak(story.title, undefined, false, voice)}
+            <h2
+                className={`text-4xl font-black text-center text-blue-600 mb-4 ${isSpeaking ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                onClick={() => !isSpeaking && speak(story.title, undefined, voice, false)}
             >
               {story.title}
             </h2>
@@ -405,18 +405,33 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user, onGoHome, voice,
             
             <div className="flex flex-col md:flex-row items-center justify-between gap-4 p-4 bg-slate-50 rounded-2xl">
               <div className="flex flex-wrap justify-center gap-2">
-                  {Object.values(ReadingMode).map(mode => (
-                      <button key={mode} onClick={() => handleModeChange(mode)}
-                              className={`px-4 py-2 rounded-full font-semibold transition-all ${readingMode === mode ? 'bg-blue-500 text-white shadow-md' : 'bg-slate-200 hover:bg-slate-300 text-slate-600'}`}>
-                        {mode}
-                    </button>
-                ))}
+                  <button onClick={() => handleModeChange(ReadingMode.WORD)}
+                          className={`flex items-center gap-2 px-4 py-2 rounded-full font-semibold transition-all ${readingMode === ReadingMode.WORD ? 'bg-blue-500 text-white shadow-md' : 'bg-slate-200 hover:bg-slate-300 text-slate-600'}`}>
+                      <Icon name="microphone" className="w-5 h-5" />
+                      <span>Word</span>
+                  </button>
+                  <button onClick={() => handleModeChange(ReadingMode.SENTENCE)}
+                          className={`flex items-center gap-2 px-4 py-2 rounded-full font-semibold transition-all ${readingMode === ReadingMode.SENTENCE ? 'bg-blue-500 text-white shadow-md' : 'bg-slate-200 hover:bg-slate-300 text-slate-600'}`}>
+                      <Icon name="microphone" className="w-5 h-5" />
+                      <span>Sentence</span>
+                  </button>
+                  <button onClick={() => handleModeChange(ReadingMode.PHONEME)}
+                          className={`flex items-center gap-2 px-4 py-2 rounded-full font-semibold transition-all ${readingMode === ReadingMode.PHONEME ? 'bg-blue-500 text-white shadow-md' : 'bg-slate-200 hover:bg-slate-300 text-slate-600'}`}>
+                      <Icon name="phoneme" className="w-5 h-5" />
+                      <span>Phoneme</span>
+                  </button>
+                  <button onClick={() => handleModeChange(ReadingMode.QUIZ)}
+                          className={`flex items-center gap-2 px-4 py-2 rounded-full font-semibold transition-all ${readingMode === ReadingMode.QUIZ ? 'bg-blue-500 text-white shadow-md' : 'bg-slate-200 hover:bg-slate-300 text-slate-600'}`}>
+                      <Icon name="quiz" className="w-5 h-5" />
+                      <span>Quiz</span>
+                  </button>
 
                 {readingMode !== ReadingMode.PHONEME && (
                   <button onClick={handleReadFullStory}
                           disabled={isSpeaking}
-                          className="px-4 py-2 rounded-full font-semibold transition-all bg-purple-500 text-white hover:bg-purple-600 disabled:bg-gray-400">
-                    Read Full Story
+                          className="flex items-center gap-2 px-4 py-2 rounded-full font-semibold transition-all bg-purple-500 text-white hover:bg-purple-600 disabled:bg-gray-400">
+                      <Icon name="play" className="w-5 h-5" />
+                      <span>Read Full Story</span>
                   </button>
                 )}
             </div>

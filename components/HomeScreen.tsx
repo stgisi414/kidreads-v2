@@ -187,16 +187,19 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
       {/* Correct Login/Logout button section for HomeScreen */}
       <div className="mt-8 flex gap-4">
         {!user ? (
-          <button onClick={loginWithGoogle} className="px-6 py-3 bg-blue-500 text-white rounded-full font-bold text-lg hover:bg-blue-600 transition-transform hover:scale-105 shadow-lg">
-            Login with Google
+          <button onClick={loginWithGoogle} className="flex items-center gap-2 px-6 py-3 bg-blue-500 text-white rounded-full font-bold text-lg hover:bg-blue-600 transition-transform hover:scale-105 shadow-lg">
+            <Icon name="login" className="w-6 h-6" />
+            <span>Login with Google</span>
           </button>
         ) : (
           <>
-            <button onClick={() => setStoriesModalVisible(true)} className="px-6 py-3 bg-purple-500 text-white rounded-full font-bold text-lg hover:bg-purple-600 transition-transform hover:scale-105 shadow-lg">
-              My Stories
+            <button onClick={() => setStoriesModalVisible(true)} className="flex items-center gap-2 px-6 py-3 bg-purple-500 text-white rounded-full font-bold text-lg hover:bg-purple-600 transition-transform hover:scale-105 shadow-lg">
+              <Icon name="stories" className="w-6 h-6" />
+              <span>My Stories</span>
             </button>
-            <button onClick={logout} className="px-6 py-3 bg-slate-200 text-slate-700 rounded-full font-bold text-lg hover:bg-slate-300 transition-transform hover:scale-105 shadow-lg">
-              Logout
+            <button onClick={logout} className="flex items-center gap-2 px-6 py-3 bg-slate-200 text-slate-700 rounded-full font-bold text-lg hover:bg-slate-300 transition-transform hover:scale-105 shadow-lg">
+              <Icon name="logout" className="w-6 h-6" />
+              <span>Logout</span>
             </button>
           </>
         )}

@@ -1,6 +1,7 @@
 import React from 'react';
 import type { User } from 'firebase/auth';
 import { loginWithGoogle, logout } from '../services/authService';
+import Icon from './Icon';
 
 type HeaderProps = {
   onGoHome: () => void;
@@ -20,12 +21,14 @@ const Header: React.FC<HeaderProps> = ({ onGoHome, user }) => {
       </button>
       <div>
         {user ? (
-          <button onClick={logout} className="px-4 py-2 bg-slate-200 text-slate-700 rounded-full font-bold text-lg hover:bg-slate-300 transition">
-            Logout
+          <button onClick={logout} className="flex items-center gap-2 px-4 py-2 bg-slate-200 text-slate-700 rounded-full font-bold text-lg hover:bg-slate-300 transition">
+            <Icon name="logout" className="w-6 h-6" />
+            <span>Logout</span>
           </button>
         ) : (
-          <button onClick={loginWithGoogle} className="px-4 py-2 bg-blue-500 text-white rounded-full font-bold text-lg hover:bg-blue-600 transition">
-            Login
+          <button onClick={loginWithGoogle} className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-full font-bold text-lg hover:bg-blue-600 transition">
+            <Icon name="login" className="w-6 h-6" />
+            <span>Login</span>
           </button>
         )}
       </div>

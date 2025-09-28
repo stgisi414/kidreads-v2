@@ -35,9 +35,9 @@ const SavedStoriesModal: React.FC<SavedStoriesModalProps> = ({ savedStories, onL
               <li key={story.id} className="flex flex-col md:flex-row md:items-center justify-between p-4 bg-slate-100 rounded-lg">
                 <div className="flex items-center w-full mb-2 md:mb-0">
                   <img src={story.illustration} alt={story.title} className="w-16 h-16 rounded-md object-cover mr-4" />
-                  <span 
-                    className={`font-bold text-lg text-slate-700 flex-grow ${isSpeaking ? 'cursor-not-allowed' : 'cursor-pointer'}`} 
-                    onClick={() => !isSpeaking && speak(story.title, undefined, false, voice)}
+                  <span
+                      className={`font-bold text-lg text-slate-700 flex-grow ${isSpeaking ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+                      onClick={() => !isSpeaking && speak(story.title, undefined, voice, false)}
                   >
                     {story.title}
                   </span>
