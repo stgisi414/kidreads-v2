@@ -24,25 +24,36 @@ const App: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(true);
   const [isInitiallySaved, setIsInitiallySaved] = useState(false);
 
-  // Set a default voice state, which will be updated from Firestore or localStorage
+  // Set a default voice state, which will be updated from Firestore   or localStorage
   const [voice, setVoice] = useState<string>('Leda');
+  const [speakingRate, setSpeakingRate] = useState<number>(1.0);
 
-   useEffect(() => {
+  useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
       if (currentUser) {
         // If the user is logged in, fetch their preferences from Firestore
         const prefs = await getUserPreferences(currentUser.uid);
+        
+        // Handle voice preference using your original logic
         if (prefs.voice) {
           setVoice(prefs.voice);
         } else {
-          // If no preference is in Firestore, use localStorage and set state
           const localVoice = localStorage.getItem('selectedVoice') || 'Leda';
           setVoice(localVoice);
         }
+        
+        // Handle speaking rate preference with the same logic
+        if (prefs.speakingRate) {
+          setSpeakingRate(prefs.speakingRate);
+        } else {
+          const localRate = parseFloat(localStorage.getItem('speakingRate') || '1.0');
+          setSpeakingRate(localRate);
+        }
       } else {
-        // If logged out, fall back to localStorage
+        // If logged out, fall back to localStorage for both settings
         setVoice(localStorage.getItem('selectedVoice') || 'Leda');
+        setSpeakingRate(parseFloat(localStorage.getItem('speakingRate') || '1.0'));
       }
       setAuthLoading(false);
     });
@@ -56,6 +67,14 @@ const App: React.FC = () => {
     // Only save to Firestore if the user is logged in.
     if (user) {
         updateUserPreferences(user.uid, { voice: newVoice });
+    }
+  }, [user]);
+
+  const handleSpeakingRateChange = useCallback((newRate: number) => {
+    setSpeakingRate(newRate);
+    localStorage.setItem('speakingRate', newRate.toString());
+    if (user) {
+      updateUserPreferences(user.uid, { speakingRate: newRate });
     }
   }, [user]);
 
@@ -125,10 +144,12 @@ const App: React.FC = () => {
             error={error}
             voice={voice}
             onVoiceChange={handleVoiceChange}
+            speakingRate={speakingRate}
+            onSpeakingRateChange={handleSpeakingRateChange}
             setError={setError}
           />
         ) : story && (
-          <StoryScreen user={user} story={story} onGoHome={handleGoHome} voice={voice} isInitiallySaved={isInitiallySaved} />
+          <StoryScreen user={user} story={story} onGoHome={handleGoHome} voice={voice} speakingRate={speakingRate} isInitiallySaved={isInitiallySaved} />
         )}
       </main>
     </div>

@@ -19,18 +19,21 @@ type HomeScreenProps = {
   error: string | null;
   voice: string;
   onVoiceChange: (voice: 'Leda' | 'Orus') => void;
+  speakingRate: number; // Add this
+  onSpeakingRateChange: (rate: number) => void; // Add this
   user: User | null;
   setError: (error: string | null) => void;
 };
 
-const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStory, isLoading, loadingMessage, error, voice, onVoiceChange, setError }) => {
+const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStory, isLoading, loadingMessage, error, voice, onVoiceChange, speakingRate, onSpeakingRateChange, setError }) => {
   const { recorderState, startRecording, stopRecording, permissionError } = useAudioRecorder();
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isStoriesModalVisible, setStoriesModalVisible] = useState(false);
   const [savedStories, setSavedStories] = useState<Story[]>([]);
-  const { speak, isLoading: isSpeakingLoading } = useTextToSpeech();
+  const { speak, isLoading: isSpeakingLoading, isSpeaking } = useTextToSpeech();
   const [instructionAudio, setInstructionAudio] = useState<HTMLAudioElement | null>(null);
   const [showBrowserError, setShowBrowserError] = useState(false);
+  const [isVoicePreviewing, setIsVoicePreviewing] = useState(false);
 
   const isDisallowedUserAgent = () => {
     const userAgent = window.navigator.userAgent.toLowerCase();
@@ -77,18 +80,55 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
     }
   }, [user]);
 
+  const handleVoiceSelection = (newVoice: 'Leda' | 'Orus') => {
+    if (newVoice === voice || isSpeaking) {
+      return;
+    }
+    onVoiceChange(newVoice);
+    setIsVoicePreviewing(true);
+    speak(
+      "What story should we read today?",
+      () => {
+        setIsVoicePreviewing(false);
+      },
+      newVoice,
+      false,
+      true,
+      speakingRate
+    );
+  };
+
+  const handleSpeedSelection = (newRate: number) => {
+    if (newRate === speakingRate || isSpeaking) {
+      return;
+    }
+    onSpeakingRateChange(newRate);
+    setIsVoicePreviewing(true);
+    speak(
+      "What story should we read today?",
+      () => {
+        setIsVoicePreviewing(false);
+      },
+      voice,
+      false,
+      true,
+      newRate
+    );
+  };
+  
   const handleReadInstructions = useCallback(async () => {
     if (instructionAudio) {
       instructionAudio.play();
     } else {
-      const audio = await speak(instructionsText, undefined, voice, false, true);
+      const audio = await speak(instructionsText, undefined, voice, false, true, speakingRate);
       if (audio && audio.audioContent) {
         const audioBlob = new Blob([base64ToArrayBuffer(audio.audioContent)], { type: 'audio/mpeg' });
         const audioUrl = URL.createObjectURL(audioBlob);
         setInstructionAudio(new Audio(audioUrl));
       }
     }
-  }, [instructionAudio, instructionsText, speak, voice]);
+  }, [instructionAudio, instructionsText, speak, voice, speakingRate]);
+
 
   const handleDeleteStory = (storyId: number) => {
     if (!user) return;
@@ -111,7 +151,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
                 if (transcription && transcription.trim()) {
                     onCreateStory(transcription);
                 } else {
-                    // Handle cases where transcription is empty or null
                     setError("I couldn't quite catch that. Please try again.");
                 }
             } catch (e: any) {
@@ -143,6 +182,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
     }
     return bytes.buffer;
   };
+  
+  const anythingLoading = isLoading || isTranscribing || isVoicePreviewing;
 
   if (isLoading || isTranscribing) {
     return <Spinner message={isTranscribing ? "Thinking about your topic..." : (loadingMessage || "Loading...")} />;
@@ -160,9 +201,9 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
             onDeleteStory={handleDeleteStory}
             onClose={() => setStoriesModalVisible(false)}
             voice={voice}
+            speakingRate={speakingRate}
           />
         )}
-        {/* Restored the title for the home screen */}
         <h1 className="text-5xl md:text-6xl font-black text-blue-600 mb-2 flex items-center justify-center">
           <video autoPlay loop muted playsInline className="w-16 h-16 md:w-20 md:h-20 mr-2 md:mr-4">
             <source src="/kidreads.mp4" type="video/mp4" />
@@ -175,18 +216,42 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
           <h3 className="text-xl font-bold text-slate-700 mb-2">Choose a Voice</h3>
           <div className="flex justify-center gap-4">
               <button 
-                  onClick={() => onVoiceChange('Leda')}
-                  className={`text-5xl p-3 rounded-full transition-all ${voice === 'Leda' ? 'bg-blue-200 ring-4 ring-blue-400' : 'hover:bg-slate-200'}`}
+                  onClick={() => handleVoiceSelection('Leda')}
+                  disabled={anythingLoading}
+                  className={`text-5xl p-3 rounded-full transition-all ${voice === 'Leda' ? 'bg-blue-200 ring-4 ring-blue-400' : 'hover:bg-slate-200'} disabled:opacity-50 disabled:cursor-not-allowed`}
                   aria-label="Select female voice"
               >
                   <span>👩🏻</span>
               </button>
               <button
-                  onClick={() => onVoiceChange('Orus')}
-                  className={`text-5xl p-3 rounded-full transition-all ${voice === 'Orus' ? 'bg-blue-200 ring-4 ring-blue-400' : 'hover:bg-slate-200'}`}
+                  onClick={() => handleVoiceSelection('Orus')}
+                  disabled={anythingLoading}
+                  className={`text-5xl p-3 rounded-full transition-all ${voice === 'Orus' ? 'bg-blue-200 ring-4 ring-blue-400' : 'hover:bg-slate-200'} disabled:opacity-50 disabled:cursor-not-allowed`}
                   aria-label="Select male voice"
               >
                   <span>👨🏽‍🦱</span>
+              </button>
+          </div>
+        </div>
+
+        <div className="mb-6">
+          <h3 className="text-xl font-bold text-slate-700 mb-2">Choose a Speed</h3>
+          <div className="flex justify-center gap-4">
+              <button 
+                  onClick={() => handleSpeedSelection(0.55)}
+                  disabled={anythingLoading}
+                  className={`text-5xl p-3 rounded-full transition-all ${speakingRate === 0.55 ? 'bg-blue-200 ring-4 ring-blue-400' : 'hover:bg-slate-200'} disabled:opacity-50 disabled:cursor-not-allowed`}
+                  aria-label="Select slow speed"
+              >
+                  <span>🐢</span>
+              </button>
+              <button
+                  onClick={() => handleSpeedSelection(1.0)}
+                  disabled={anythingLoading}
+                  className={`text-5xl p-3 rounded-full transition-all ${speakingRate === 1.0 ? 'bg-blue-200 ring-4 ring-blue-400' : 'hover:bg-slate-200'} disabled:opacity-50 disabled:cursor-not-allowed`}
+                  aria-label="Select normal speed"
+              >
+                  <span>🐇</span>
               </button>
           </div>
         </div>
@@ -199,7 +264,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
               dangerouslySetInnerHTML={{ __html: isListening ? 'Now press the <span class="font-semibold text-red-600">checkmark</span> when you\'re done speaking!' : instructionsHtml }}
             />
             {!isListening && (
-              <button onClick={handleReadInstructions} disabled={isSpeakingLoading} className="p-2 rounded-full hover:bg-slate-200 transition">
+              <button onClick={handleReadInstructions} disabled={anythingLoading} className="p-2 rounded-full hover:bg-slate-200 transition disabled:opacity-50 disabled:cursor-not-allowed">
                 <Icon name="speaker" className="w-6 h-6 text-blue-500" />
               </button>
             )}
@@ -208,29 +273,29 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
 
         <button
           onClick={handleMicClick}
-          disabled={permissionError}
+          disabled={permissionError || anythingLoading}
           className={`flex items-center justify-center w-40 h-40 rounded-full transition-all duration-300 ease-in-out focus:outline-none focus:ring-4 focus:ring-blue-300
                       ${isListening 
                         ? 'bg-red-500 text-white animate-pulse-strong shadow-2xl' 
-                        : 'bg-blue-500 hover:bg-blue-600 text-white shadow-xl'}`}
+                        : 'bg-blue-500 hover:bg-blue-600 text-white shadow-xl'}
+                        disabled:bg-slate-400 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none`}
         >
           <Icon name={isListening ? "check" : "microphone"} className="w-20 h-20" />
         </button>
         
-        {/* Correct Login/Logout button section for HomeScreen */}
         <div className="mt-8 flex gap-4">
           {!user ? (
-            <button onClick={signIn} className="flex items-center gap-2 px-6 py-3 bg-blue-500 text-white rounded-full font-bold text-lg hover:bg-blue-600 transition-transform hover:scale-105 shadow-lg">
+            <button onClick={signIn} disabled={anythingLoading} className="flex items-center gap-2 px-6 py-3 bg-blue-500 text-white rounded-full font-bold text-lg hover:bg-blue-600 transition-transform hover:scale-105 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
               <Icon name="login" className="w-6 h-6" />
               <span>Login with Google</span>
             </button>
           ) : (
             <>
-              <button onClick={() => setStoriesModalVisible(true)} className="flex items-center gap-2 px-6 py-3 bg-purple-500 text-white rounded-full font-bold text-lg hover:bg-purple-600 transition-transform hover:scale-105 shadow-lg">
+              <button onClick={() => setStoriesModalVisible(true)} disabled={anythingLoading} className="flex items-center gap-2 px-6 py-3 bg-purple-500 text-white rounded-full font-bold text-lg hover:bg-purple-600 transition-transform hover:scale-105 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
                 <Icon name="stories" className="w-6 h-6" />
                 <span>My Stories</span>
               </button>
-              <button onClick={logout} className="flex items-center gap-2 px-6 py-3 bg-slate-200 text-slate-700 rounded-full font-bold text-lg hover:bg-slate-300 transition-transform hover:scale-105 shadow-lg">
+              <button onClick={logout} disabled={anythingLoading} className="flex items-center gap-2 px-6 py-3 bg-slate-200 text-slate-700 rounded-full font-bold text-lg hover:bg-slate-300 transition-transform hover:scale-105 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
                 <Icon name="logout" className="w-6 h-6" />
                 <span>Logout</span>
               </button>

@@ -14,11 +14,13 @@ const base64ToArrayBuffer = (base64: string) => {
 };
 
 interface TextToSpeechHook {
-  speak: (text: string, onEnd?: () => void, voice?: string, isWord?: boolean, autoPlay?: boolean) => Promise<{duration: number, audioContent: string | null, play: () => void}>;
+  speak: (text: string, onEnd?: () => void, voice?: string, isWord?: boolean, autoPlay?: boolean, speakingRate?: number) => Promise<{duration: number, audioContent: string | null, play: () => void}>;
   cancel: () => void;
   isSpeaking: boolean;
   isLoading: boolean;
 }
+
+console.log("speaking rate: " + speakingRate);
 
 export const useTextToSpeech = (): TextToSpeechHook => {
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -40,7 +42,8 @@ export const useTextToSpeech = (): TextToSpeechHook => {
     onEnd?: () => void,
     voice: string = 'Leda',
     isWord: boolean = false,
-    autoPlay: boolean = true
+    autoPlay: boolean = true,
+    speakingRate: number = 1.0 // Add speakingRate here
   ): Promise<{duration: number, audioContent: string | null, play: () => void}> => {
     if (isSpeaking || isLoading) {
       return { duration: 0, audioContent: null, play: () => {} };
@@ -49,7 +52,7 @@ export const useTextToSpeech = (): TextToSpeechHook => {
     cancel();
 
     try {
-      const { audioContent } = await getTextToSpeechAudio(text, voice, isWord);
+      const { audioContent } = await getTextToSpeechAudio(text, voice, isWord, speakingRate);
       if (!audioContent) throw new Error("No audio content received.");
 
       const audioBuffer = await Tone.context.decodeAudioData(base64ToArrayBuffer(audioContent));

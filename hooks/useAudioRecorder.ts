@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 
 // Define the state of the recorder
 type RecorderStatus = 'inactive' | 'recording' | 'stopped';
@@ -10,7 +10,8 @@ interface RecorderState {
 interface AudioRecorderHook {
   recorderState: RecorderState;
   startRecording: () => Promise<void>;
-  stopRecording: () => Promise<string | null>; // **FIX**: Now returns a promise with the audio
+  stopRecording: () => Promise<string | null>;
+  cancelRecording: () => void; // Add this line
   permissionError: boolean;
 }
 
@@ -31,7 +32,6 @@ export const useAudioRecorder = (): AudioRecorderHook => {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       
-      // Revert mimeType to audio/webm and let the browser choose the codec.
       const mediaRecorder = new MediaRecorder(streamRef.current, { mimeType: 'audio/webm' });
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
@@ -53,7 +53,6 @@ export const useAudioRecorder = (): AudioRecorderHook => {
         if (mediaRecorderRef.current && recorderState.status === 'recording') {
             setTimeout(() => {
                 mediaRecorderRef.current.addEventListener('stop', () => {
-                    // Revert Blob type to audio/webm.
                     const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
                     const reader = new FileReader();
                     reader.onloadend = () => {
@@ -73,6 +72,23 @@ export const useAudioRecorder = (): AudioRecorderHook => {
         }
     });
   }, [recorderState.status]);
+  
+  // Add this new cancel function
+  const cancelRecording = useCallback(() => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.stop();
+    }
+    streamRef.current?.getTracks().forEach(track => track.stop());
+    setRecorderState({ status: 'inactive' });
+    audioChunksRef.current = [];
+  }, []);
 
-  return { recorderState, startRecording, stopRecording, permissionError };
+  // Add a cleanup effect
+  useEffect(() => {
+    return () => {
+      streamRef.current?.getTracks().forEach(track => track.stop());
+    };
+  }, []);
+
+  return { recorderState, startRecording, stopRecording, cancelRecording, permissionError };
 };

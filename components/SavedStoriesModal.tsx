@@ -11,9 +11,10 @@ type SavedStoriesModalProps = {
   onDeleteStory: (storyId: number) => void;
   onClose: () => void;
   voice: string;
+  speakingRate: number;
 };
 
-const SavedStoriesModal: React.FC<SavedStoriesModalProps> = ({ savedStories, onLoadStory, onDeleteStory, onClose, voice }) => {
+const SavedStoriesModal: React.FC<SavedStoriesModalProps> = ({ savedStories, onLoadStory, onDeleteStory, onClose, voice, speakingRate }) => {
   const { speak, isSpeaking } = useTextToSpeech();
   const [selectedStoryForResults, setSelectedStoryForResults] = useState<Story | null>(null);
 
@@ -37,7 +38,7 @@ const SavedStoriesModal: React.FC<SavedStoriesModalProps> = ({ savedStories, onL
                   <img src={story.illustration} alt={story.title} className="w-16 h-16 rounded-md object-cover mr-4" />
                   <span
                       className={`font-bold text-lg text-slate-700 flex-grow ${isSpeaking ? 'cursor-not-allowed' : 'cursor-pointer'}`}
-                      onClick={() => !isSpeaking && speak(story.title, undefined, voice, false)}
+                      onClick={() => !isSpeaking && speak(story.title, undefined, voice, false, true, speakingRate)}
                   >
                     {story.title}
                   </span>

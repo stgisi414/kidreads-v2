@@ -45,19 +45,17 @@ export const updateStory = async (userId: string, story: Story): Promise<void> =
 };
 
 // Get user preferences (like selected voice)
-export const getUserPreferences = async (userId: string): Promise<{ voice?: string }> => {
+export const getUserPreferences = async (userId: string): Promise<{ voice?: string; speakingRate?: number }> => {
   const userDocRef = doc(db, 'users', userId);
   const docSnap = await getDoc(userDocRef);
   if (docSnap.exists()) {
-    // Preferences are stored in a 'preferences' field in the user's document
     return docSnap.data().preferences || {};
   }
   return {};
 };
 
 // Update user preferences
-export const updateUserPreferences = async (userId: string, preferences: { voice: string }): Promise<void> => {
+export const updateUserPreferences = async (userId: string, preferences: { voice?: string; speakingRate?: number }): Promise<void> => {
   const userDocRef = doc(db, 'users', userId);
-  // We use { merge: true } to avoid overwriting other user data
   await setDoc(userDocRef, { preferences }, { merge: true });
 };

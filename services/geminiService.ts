@@ -15,6 +15,7 @@ type TTSResponse = { audioContent: string; };
 type TranscriptionResponse = { transcription?: string; };
 type TimedTranscriptResponse = { transcript?: any[]; };
 type WordMatchResponse = { isMatch: boolean; };
+type PhonemeResponse = { phonemes: string[]; definition: string | null; };
 
 // Export new functions that use the callable references
 export const generateStoryAndIllustration = async (topic: string): Promise<StoryResponse> => {
@@ -22,13 +23,13 @@ export const generateStoryAndIllustration = async (topic: string): Promise<Story
   return result.data as StoryResponse;
 };
 
-export const getPhonemesForWord = async (word: string): Promise<string[]> => {
+export const getPhonemesForWord = async (word: string): Promise<PhonemeResponse> => {
   const result = await getPhonemesForWordCallable({ word });
-  return result.data as string[];
+  return result.data as PhonemeResponse;
 };
 
-export const getTextToSpeechAudio = async (text: string, voice: string, isWord: boolean = false): Promise<TTSResponse> => {
-  const result = await googleCloudTTSCallable({ text, speakingRate: 1.0, voice, isWord });
+export const getTextToSpeechAudio = async (text: string, voice: string, isWord: boolean = false, speakingRate: number = 1.0): Promise<TTSResponse> => {
+  const result = await googleCloudTTSCallable({ text, voice, isWord, speakingRate });
   return result.data as TTSResponse;
 };
 

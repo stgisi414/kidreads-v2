@@ -16,6 +16,7 @@ type StoryScreenProps = {
   story: Story;
   onGoHome: () => void;
   voice: string;
+  speakingRate: number;
   isInitiallySaved: boolean;
 };
 
@@ -51,12 +52,12 @@ const calculateSimilarity = (str1: string, str2: string) => {
     return similarity;
 };
 
-const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onGoHome, voice, isInitiallySaved }) => {
+const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onGoHome, voice, speakingRate, isInitiallySaved }) => {
   const [readingMode, setReadingMode] = useState<ReadingMode>(ReadingMode.WORD);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
   const [feedback, setFeedback] = useState<Feedback>(null);
-  const [phonemeData, setPhonemeData] = useState<{word: string, phonemes: string[]}|null>(null);
+  const [phonemeData, setPhonemeData] = useState<{word: string, phonemes: string[], definition: string | null}|null>(null);
   const [isLoadingPhonemes, setIsLoadingPhonemes] = useState(false);
   const [isQuizVisible, setIsQuizVisible] = useState(false);
   const [isStorySaved, setIsStorySaved] = useState(isInitiallySaved);
@@ -71,7 +72,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
   const fullStoryTimeoutRef = useRef<NodeJS.Timeout[]>([]);
 
   const { speak, cancel, isSpeaking } = useTextToSpeech();
-  const { recorderState, startRecording, stopRecording, permissionError } = useAudioRecorder();
+  const { recorderState, startRecording, stopRecording, cancelRecording, permissionError } = useAudioRecorder();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
@@ -102,9 +103,9 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
         setFlowState('INITIAL');
         setCurrentSentenceIndex(0);
         setCurrentWordIndex(0);
-      }, false, voice);
+      }, voice, false, true, speakingRate);
     }
-  }, [flowState, speak, voice]);
+  }, [flowState, speak, voice, speakingRate]);
 
   const readAloud = useCallback(() => {
     let textToRead = '';
@@ -122,13 +123,13 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
       speak(textToRead, () => {
           startRecording();
           setFlowState('LISTENING');
-      }, false, voice);
+      }, voice, isWord, true, speakingRate);
     } catch (error) {
       console.error("TTS failed, attempting to continue:", error);
       setFlowState('IDLE');
     }
 
-  }, [readingMode, currentSentenceIndex, currentWordIndex, story, speak, startRecording, voice]);
+  }, [readingMode, currentSentenceIndex, currentWordIndex, story, speak, startRecording, voice, speakingRate]);
 
   const handleUserSpeechEnd = useCallback(async () => {
     if (recorderState.status !== 'recording') return;
@@ -178,7 +179,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
                            setFlowState('FINISHED');
                        }
                   }
-              }, false, voice);
+              }, voice, false, true, speakingRate);
             } catch (error) {
               console.error("TTS failed, attempting to continue:", error);
               setFlowState('IDLE');
@@ -198,12 +199,12 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
                         setFlowState('FINISHED');
                     }
                     setFlowState('IDLE');
-                }, false, voice);
+                }, voice, false, true, speakingRate);
             } else {
                 speak("Let's try again!", () => {
                   setFeedback(null);
                   setFlowState('IDLE');
-                }, false, voice);
+                }, voice, false, true, speakingRate);
             }
         }
       } catch (e) {
@@ -213,7 +214,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
         speak("Let's try again!", () => {
             setFeedback(null);
             setFlowState('IDLE');
-        }, false, voice);
+        }, voice, false, true, speakingRate);
       }
     } else {
        setFlowState('IDLE');
@@ -231,9 +232,17 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
     setCurrentWordIndex(0);
     setFlowState('IDLE');
   };
-  
+
+  useEffect(() => {
+      return () => {
+        cancel(); // from useTextToSpeech
+        cancelRecording(); // from useAudioRecorder
+      };
+  }, [cancel, cancelRecording]);
+      
   const handleModeChange = (mode: ReadingMode) => {
     cancel();
+    cancelRecording();
     if (mode === ReadingMode.QUIZ) {
         setIsQuizVisible(true);
     } else {
@@ -262,22 +271,29 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
         setFlowState('INITIAL'); 
     };
 
-    const { duration, audioContent, play } = await speak(story.text, onEnd, voice, false, false);
+    const { duration, audioContent, play } = await speak(story.text, onEnd, voice, false, false, speakingRate);
 
     const fallbackToEstimation = () => {
         if (play) play(); // Start playback for fallback
+
+        let milisecondMultiplier = 1000;
+        if (speakingRate === 0.55) {
+            milisecondMultiplier = 1300;
+        }
+        console.log("milisecond multiplier: " + milisecondMultiplier);
+
         if (readingMode === ReadingMode.SENTENCE) {
             const sentences = story.sentences;
             let cumulativeDelay = 0;
             for (let i = 0; i < sentences.length; i++) {
-                const sentenceDuration = (sentences[i].length / story.text.length) * duration * 1000;
+                const sentenceDuration = (sentences[i].length / story.text.length) * duration * milisecondMultiplier;
                 const timeout = setTimeout(() => setFullStoryHighlightIndex(i), cumulativeDelay);
                 fullStoryTimeoutRef.current.push(timeout);
                 cumulativeDelay += sentenceDuration;
             }
         } else {
             const words = story.words;
-            const timePerWord = (duration * 1000) / words.length;
+            const timePerWord = (duration * milisecondMultiplier) / words.length;
             for (let i = 0; i < words.length; i++) {
                 const timeout = setTimeout(() => setFullStoryHighlightIndex(i), i * timePerWord);
                 fullStoryTimeoutRef.current.push(timeout);
@@ -290,11 +306,17 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
             const { transcript } = await getTimedTranscript(audioContent, story.text);
             if (play) play(); // Start playback
 
+            let milisecondMultiplier = 1000;
+            if (speakingRate === 0.55) {
+                milisecondMultiplier = 1300;
+            }
+            console.log("milisecond multiplier: " + milisecondMultiplier);
+
             if (transcript && Array.isArray(transcript)) {
                 let searchFromIndex = 0;
                 transcript.forEach(item => {
                     const { word, startTime } = item;
-                    const startTimeMs = parseFloat(startTime) * 1000;
+                    const startTimeMs = parseFloat(startTime) * milisecondMultiplier;
                     const wordIndex = story.words.findIndex(
                         (storyWord, index) => index >= searchFromIndex && normalizeText(storyWord) === normalizeText(word)
                     );
@@ -318,7 +340,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
             fallbackToEstimation();
         }
     }
-}, [story, readingMode, voice, cancel, flowState, currentSentenceIndex, currentWordIndex, speak, wordToSentenceMap]);
+}, [story, readingMode, voice, speakingRate, cancel, flowState, currentSentenceIndex, currentWordIndex, speak, wordToSentenceMap]);
   
   const getWordSpans = (sentence: string, sentenceIndex: number) => {
     let globalWordIndexOffset = 0;
@@ -349,18 +371,20 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
 
       cancel();
       setIsLoadingPhonemes(true);
-      setPhonemeData({ word, phonemes: ['...'] }); // Show loading state
+      // Show loading state for both phonemes and definition
+      setPhonemeData({ word, phonemes: ['...'], definition: '...' }); 
 
       try {
-          const phonemes = await getPhonemesForWord(word);
-          setPhonemeData({ word, phonemes });
+          // The response now contains both phonemes and an optional definition
+          const { phonemes, definition } = await getPhonemesForWord(word);
+          setPhonemeData({ word, phonemes, definition });
 
-          // Just speak the word at normal speed.
-          speak(word, undefined, voice, true);
+          // Speak the word itself
+          speak(word, undefined, voice, true, true, speakingRate);
 
       } catch (e) {
           console.error("Error in handleWordClickForPhonemes:", e);
-          setPhonemeData({ word, phonemes: ['Error'] });
+          setPhonemeData({ word, phonemes: ['Error'], definition: 'Could not load definition.' });
       } finally {
           setIsLoadingPhonemes(false);
       }
@@ -384,7 +408,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
         <div className="bg-white p-6 rounded-3xl shadow-xl">
             <h2
                 className={`text-4xl font-black text-center text-blue-600 mb-4 ${isSpeaking ? 'cursor-not-allowed' : 'cursor-pointer'}`}
-                onClick={() => !isSpeaking && speak(story.title, undefined, voice, false)}
+                onClick={() => !isSpeaking && speak(story.title, undefined, voice, false, true, speakingRate)}
             >
               {story.title}
             </h2>
@@ -410,6 +434,18 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
                     <p className="text-3xl font-bold tracking-widest text-blue-700">
                         {phonemeData.phonemes.join(' - ')}
                     </p>
+                    {phonemeData.definition && (
+                      <div className="mt-4 flex items-center justify-center gap-2 border-t border-blue-200 pt-3">
+                          <p className="text-lg text-slate-700">{phonemeData.definition}</p>
+                          <button 
+                            onClick={() => speak(phonemeData.definition!, undefined, voice, false, true, speakingRate)}
+                            disabled={isSpeaking || isLoadingPhonemes}
+                            className="text-blue-500 hover:text-blue-700 disabled:text-gray-400"
+                          >
+                              <Icon name="speaker" className="w-7 h-7"/>
+                          </button>
+                      </div>
+                    )}
                 </div>
             )}
             

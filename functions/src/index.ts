@@ -194,9 +194,37 @@ export const getPhonemesForWord = onRequest(
       try {
         const cleanWord = word.replace(/[.,!?]/g, "");
         const modelUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
+        
+        const prompt = `
+          Analyze the word: "${cleanWord}".
+
+          Your response MUST be a valid JSON object.
+
+          1.  Break the word down into its individual phonemes. If the word is a common abbreviation (e.g., "Dr."), use the full word ("Doctor") for the phonemes. The result should be an array of strings in a "phonemes" field.
+          2.  Determine if this is a "tricky word" for a 5-year-old. A tricky word is anything that is NOT a very common sight word (e.g., 'a', 'an', 'the', 'is', 'in', 'it', 'on').
+          3.  If it is a tricky word, provide a simple, one-sentence definition suitable for a 5-year-old in a "definition" field.
+          4.  If it is NOT a tricky word, the "definition" field should be null.
+
+          Example for "happy":
+          {
+            "phonemes": ["h", "a", "ppy"],
+            "definition": "Happy is when you feel very good and are smiling."
+          }
+          
+          Example for "the":
+          {
+            "phonemes": ["the"],
+            "definition": null
+          }
+        `;
+
         const apiRequest = {
-          contents: [{ parts: [{ text: `Break down the word "${cleanWord}" into its individual phonemes, separated by hyphens. For example, for "cat", respond with "c-a-t". For "happy", respond "h-a-ppy". Provide only the hyphen-separated phonemes and nothing else.` }] }],
-          generationConfig: { temperature: 0, maxOutputTokens: 1024 },
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { 
+            temperature: 0, 
+            maxOutputTokens: 1024,
+            responseMimeType: "application/json",
+          },
         };
 
         const apiResponse = await fetch(modelUrl, {
@@ -212,14 +240,15 @@ export const getPhonemesForWord = onRequest(
         }
 
         const data = await apiResponse.json();
-        const phonemeText = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        const responseJsonText = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
-        if (!phonemeText) {
+        if (!responseJsonText) {
           throw new Error("Could not get phonemes for the word.");
         }
-        const phonemes = phonemeText.split("-").filter((p: string) => p);
-        // FIX: The response needs to be nested in a 'data' object
-        response.status(200).send({ data: phonemes });
+        
+        const responseObject = JSON.parse(responseJsonText);
+        response.status(200).send({ data: responseObject });
+
       } catch (error) {
         logger.error("Error in getPhonemesForWord:", error);
         response.status(500).send({ error: "Could not get phonemes for the word." });
@@ -237,7 +266,7 @@ export const googleCloudTTS = onRequest(
       }
 
       // FIX: The data is nested inside request.body.data
-      const { text, voice, isWord, slow } = request.body.data;
+      const { text, voice, isWord, speakingRate } = request.body.data;
       if (!text) {
         return response.status(400).send("Bad Request: Missing text");
       }
@@ -247,12 +276,8 @@ export const googleCloudTTS = onRequest(
         ? { languageCode: 'en-US', name: 'en-US-Studio-O' } // Female Studio Voice
         : { languageCode: 'en-US', name: 'en-US-Studio-M' }; // Male Studio Voice
       
-      let ssml = `<speak>${text}</speak>`;
-      if (slow) {
-        ssml = `<speak><prosody rate="slow">${text}</prosody></speak>`;
-      } else if (isWord) {
-        ssml = `<speak><break time="250ms"/>${text}</speak>`;
-      }
+      const content = isWord ? `<break time="250ms"/>${text}` : text;
+      const ssml = `<speak><prosody rate="${speakingRate || 1.0}">${content}</prosody></speak>`;
 
       try {
         const [ttsResponse] = await textToSpeechClient.synthesizeSpeech({

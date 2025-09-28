@@ -9,10 +9,11 @@ type QuizModalProps = {
   onClose: () => void;
   onQuizComplete: (results: Omit<QuizResult, 'date'>) => void;
   voice: string;
+  speakingRate: number;
   isSpeaking: boolean;
 };
 
-const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, onQuizComplete, voice, isSpeaking: isParentSpeaking }) => {
+const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, onQuizComplete, voice, speakingRate, isSpeaking: isParentSpeaking }) => {
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
@@ -35,9 +36,9 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, onQuizComplet
     setIsCorrect(correct);
     if (correct) {
       setScore(s => s + 1);
-      speak("That's right!", undefined, false, voice);
+      speak("That's right!", undefined, voice, false, true, speakingRate);
     } else {
-      speak("Not quite, let's try the next one.", undefined, false, voice);
+      speak("Not quite, let's try the next one.", undefined, voice, false, true, speakingRate);
     }
 
     setUserAnswers(prev => [...prev, {
@@ -76,12 +77,12 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, onQuizComplet
     if (isCorrect !== null) return;
     setSelectedAnswer(option);
     cancel(); // Stop any other speech
-    speak(option, undefined, voice, false);
+    speak(option, undefined, voice, false, true, speakingRate);
   };
 
   const handleReadQuestion = () => {
     cancel();
-    speak(currentQuestion.question, undefined, voice, false);
+    speak(currentQuestion.question, undefined, voice, false, true, speakingRate);
   };
 
   const currentQuestion = questions[currentQuestionIndex];
