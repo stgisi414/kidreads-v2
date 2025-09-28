@@ -1,4 +1,4 @@
-// stgisi414/kidreads-v2/kidreads-v2-481bdc4553ad75bdafafd2b9a8d9541c82717d7f/App.tsx
+// stgisi414/kidreads-v2/kidreads-v2-e8690d9da56ed636ba08124032ff46085ec14872/App.tsx
 import React, { useState, useCallback, useEffect } from 'react';
 import type { User } from 'firebase/auth';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -36,10 +36,9 @@ const App: React.FC = () => {
         if (prefs.voice) {
           setVoice(prefs.voice);
         } else {
-          // If no preference is in Firestore, use localStorage and update Firestore
+          // If no preference is in Firestore, use localStorage and set state
           const localVoice = localStorage.getItem('selectedVoice') || 'Leda';
           setVoice(localVoice);
-          await updateUserPreferences(currentUser.uid, { voice: localVoice });
         }
       } else {
         // If logged out, fall back to localStorage
