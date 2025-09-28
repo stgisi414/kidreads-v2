@@ -9,6 +9,8 @@ import HomeScreen from './components/HomeScreen';
 import StoryScreen from './components/StoryScreen';
 import Header from './components/Header';
 import { generateStoryAndIllustration } from './services/geminiService';
+import { getUserPreferences, updateUserPreferences } from './services/firestoreService';
+import Spinner from './components/Spinner';
 
 type Screen = 'home' | 'story';
 
@@ -20,23 +22,42 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [isInitiallySaved, setIsInitiallySaved] = useState(false); // <-- Add this state
+  const [isInitiallySaved, setIsInitiallySaved] = useState(false);
 
-  const [voice, setVoice] = useState<string>(() => {
-    return localStorage.getItem('selectedVoice') || 'Leda';
-  });
+  // Set a default voice state, which will be updated from Firestore or localStorage
+  const [voice, setVoice] = useState<string>('Leda');
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+   useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
+      if (currentUser) {
+        // If the user is logged in, fetch their preferences from Firestore
+        const prefs = await getUserPreferences(currentUser.uid);
+        if (prefs.voice) {
+          setVoice(prefs.voice);
+        } else {
+          // If no preference is in Firestore, use localStorage and update Firestore
+          const localVoice = localStorage.getItem('selectedVoice') || 'Leda';
+          setVoice(localVoice);
+          await updateUserPreferences(currentUser.uid, { voice: localVoice });
+        }
+      } else {
+        // If logged out, fall back to localStorage
+        setVoice(localStorage.getItem('selectedVoice') || 'Leda');
+      }
       setAuthLoading(false);
     });
     return () => unsubscribe();
   }, []);
 
   useEffect(() => {
+    // Save to localStorage for logged-out users or as a fallback
     localStorage.setItem('selectedVoice', voice);
-  }, [voice]);
+    // If the user is logged in, also save the preference to Firestore
+    if (user) {
+      updateUserPreferences(user.uid, { voice });
+    }
+  }, [voice, user]);
 
   const handleCreateStory = useCallback(async (topic: string) => {
     if (Tone.context.state !== 'running') {
@@ -92,7 +113,10 @@ const App: React.FC = () => {
     <div className="min-h-screen w-full flex flex-col items-center p-4 bg-sky-50 text-slate-800">
       {screen === 'story' && <Header onGoHome={handleGoHome} user={user} />}
       <main className="w-full max-w-4xl mx-auto flex-grow flex items-center justify-center">
-        {screen === 'home' && (
+        {/* 2. Add a check for authLoading */}
+        {authLoading ? (
+          <Spinner message="Loading your profile..." />
+        ) : screen === 'home' ? (
           <HomeScreen
             user={user}
             onCreateStory={handleCreateStory}
@@ -104,9 +128,7 @@ const App: React.FC = () => {
             onVoiceChange={setVoice}
             setError={setError}
           />
-        )}
-        {screen === 'story' && story && (
-          // Pass the new prop to StoryScreen
+        ) : story && (
           <StoryScreen story={story} onGoHome={handleGoHome} voice={voice} user={user} isInitiallySaved={isInitiallySaved} />
         )}
       </main>
