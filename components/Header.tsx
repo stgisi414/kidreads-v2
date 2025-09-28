@@ -51,7 +51,7 @@ const Header: React.FC<HeaderProps> = ({ onGoHome, user }) => {
     }
     try {
       // We now call the original login function here
-      await loginWithGoogle(); 
+      await loginWithGoogle();
     } catch (error) {
       console.error("Error during sign in:", error);
       setShowBrowserError(true);
@@ -72,8 +72,8 @@ const Header: React.FC<HeaderProps> = ({ onGoHome, user }) => {
         <div>
           {user ? (
             <button onClick={logout} className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-full font-bold text-lg hover:bg-blue-600 transition">
-              <Icon name="login" className="w-6 h-6" />
-              <span>Login</span>
+              <Icon name="logout" className="w-6 h-6" />
+              <span>Logout</span>
             </button>
           ) : (
               <button onClick={signIn} className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-full font-bold text-lg hover:bg-blue-600 transition">

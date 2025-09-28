@@ -10,6 +10,7 @@ import Header from './components/Header';
 import { generateStoryAndIllustration } from './services/geminiService';
 import { getUserPreferences, updateUserPreferences } from './services/firestoreService';
 import Spinner from './components/Spinner';
+import { splitSentences } from './utils/textUtils';
 
 type Screen = 'home' | 'story';
 
@@ -69,7 +70,7 @@ const App: React.FC = () => {
     try {
       const { title, text, illustration, quiz } = await generateStoryAndIllustration(topic);
       
-      const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+      const sentences = splitSentences(text);
       const words = text.split(/\s+/).filter(w => w.length > 0);
 
       setStory({
@@ -112,7 +113,6 @@ const App: React.FC = () => {
     <div className="min-h-screen w-full flex flex-col items-center p-4 bg-sky-50 text-slate-800">
       {screen === 'story' && <Header onGoHome={handleGoHome} user={user} />}
       <main className="w-full max-w-4xl mx-auto flex-grow flex items-center justify-center">
-        {/* 2. Add a check for authLoading */}
         {authLoading ? (
           <Spinner message="Loading your profile..." />
         ) : screen === 'home' ? (
@@ -128,7 +128,7 @@ const App: React.FC = () => {
             setError={setError}
           />
         ) : story && (
-          <StoryScreen story={story} onGoHome={handleGoHome} voice={voice} user={user} isInitiallySaved={isInitiallySaved} />
+          <StoryScreen user={user} story={story} onGoHome={handleGoHome} voice={voice} isInitiallySaved={isInitiallySaved} />
         )}
       </main>
     </div>

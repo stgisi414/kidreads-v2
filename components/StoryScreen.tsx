@@ -8,6 +8,8 @@ import { useAudioRecorder } from '../hooks/useAudioRecorder';
 import QuizModal from './QuizModal';
 import { saveStory, updateStory } from '../services/firestoreService';
 import type { User } from 'firebase/auth';
+import { onAuthStateChanged } from 'firebase/auth';
+import { auth } from '../firebase';
 
 type StoryScreenProps = {
   user: User | null;
@@ -49,7 +51,7 @@ const calculateSimilarity = (str1: string, str2: string) => {
     return similarity;
 };
 
-const StoryScreen: React.FC<StoryScreenProps> = ({ story, user, onGoHome, voice, isInitiallySaved }) => {
+const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onGoHome, voice, isInitiallySaved }) => {
   const [readingMode, setReadingMode] = useState<ReadingMode>(ReadingMode.WORD);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
@@ -61,6 +63,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user, onGoHome, voice,
   const [flowState, setFlowState] = useState<FlowState>('INITIAL');
   const [currentStory, setCurrentStory] = useState<Story>(story);
   const [incorrectAttempts, setIncorrectAttempts] = useState(0);
+  const [user, setUser] = useState<User | null>(initialUser);
 
   const [isReadingFullStory, setIsReadingFullStory] = useState(false);
   const [fullStoryHighlightIndex, setFullStoryHighlightIndex] = useState(-1);
@@ -69,6 +72,13 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user, onGoHome, voice,
 
   const { speak, cancel, isSpeaking } = useTextToSpeech();
   const { recorderState, startRecording, stopRecording, permissionError } = useAudioRecorder();
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+    });
+    return () => unsubscribe();
+  }, []);
 
   const wordToSentenceMap = useMemo(() => {
     const map: number[] = [];
