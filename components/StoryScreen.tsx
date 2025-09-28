@@ -472,7 +472,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
                       <span>Quiz</span>
                   </button>
 
-                {readingMode !== ReadingMode.PHONEME && (
+                {readingMode !== ReadingMode.PHONEME && readingMode !== ReadingMode.QUIZ && (
                   <button onClick={handleReadFullStory}
                           disabled={isSpeaking}
                           className="flex items-center gap-2 px-4 py-2 rounded-full font-semibold transition-all bg-purple-500 text-white hover:bg-purple-600 disabled:bg-gray-400">

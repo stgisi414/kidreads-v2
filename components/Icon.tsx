@@ -1,7 +1,7 @@
 import React from 'react';
 
 type IconProps = {
-  name: 'microphone' | 'home' | 'play' | 'star' | 'check' | 'retry' | 'trash' | 'results' | 'login' | 'logout' | 'stories' | 'save' | 'close' | 'book' | 'quiz' | 'phoneme' | 'speaker';
+  name: 'microphone' | 'home' | 'play' | 'star' | 'check' | 'retry' | 'trash' | 'results' | 'login' | 'logout' | 'stories' | 'save' | 'close' | 'book' | 'quiz' | 'phoneme' | 'speaker' | 'idea';
   className?: string;
 };
 
@@ -91,6 +91,13 @@ const Icon: React.FC<IconProps> = ({ name, className = 'w-6 h-6' }) => {
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
           <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.06c1.48-.73 2.5-2.25 2.5-4.03zm-.25-6.23c2.97.86 5.18 3.55 5.25 6.23a8.008 8.008 0 01-5.25 6.23v-2.06c1.8-.81 3.03-2.51 3.03-4.17s-1.23-3.36-3.03-4.17V5.77z"/>
         </svg>
+    ),
+    idea: (
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/>
+        <path d="M9 18h6"/>
+        <path d="M10 22h4"/>
+      </svg>
     )
   };
 

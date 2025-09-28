@@ -1,8 +1,9 @@
+// stgisi414/kidreads-v2/kidreads-v2-7df6b44bd4f2bf2c715452e19497e9223b2b7e86/components/HomeScreen.tsx
 import React, { useState, useEffect, useCallback } from 'react';
 import Spinner from './Spinner';
 import Icon from './Icon';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
-import { transcribeAudio } from '../services/geminiService';
+import { transcribeAudio, generateStoryIdeas } from '../services/geminiService';
 import SavedStoriesModal from './SavedStoriesModal';
 import type { Story } from '../types';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
@@ -19,21 +20,25 @@ type HomeScreenProps = {
   error: string | null;
   voice: string;
   onVoiceChange: (voice: 'Leda' | 'Orus') => void;
-  speakingRate: number; // Add this
-  onSpeakingRateChange: (rate: number) => void; // Add this
+  speakingRate: number;
+  onSpeakingRateChange: (rate: number) => void;
   user: User | null;
   setError: (error: string | null) => void;
 };
+
+const ideaColors = ['text-amber-600', 'text-emerald-600', 'text-sky-600', 'text-rose-600'];
 
 const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStory, isLoading, loadingMessage, error, voice, onVoiceChange, speakingRate, onSpeakingRateChange, setError }) => {
   const { recorderState, startRecording, stopRecording, permissionError } = useAudioRecorder();
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isStoriesModalVisible, setStoriesModalVisible] = useState(false);
   const [savedStories, setSavedStories] = useState<Story[]>([]);
-  const { speak, isLoading: isSpeakingLoading, isSpeaking } = useTextToSpeech();
+  const { speak, isSpeaking } = useTextToSpeech();
   const [instructionAudio, setInstructionAudio] = useState<HTMLAudioElement | null>(null);
   const [showBrowserError, setShowBrowserError] = useState(false);
   const [isVoicePreviewing, setIsVoicePreviewing] = useState(false);
+  const [storyIdeas, setStoryIdeas] = useState<string[]>([]);
+  const [isLoadingIdeas, setIsLoadingIdeas] = useState(false);
 
   const isDisallowedUserAgent = () => {
     const userAgent = window.navigator.userAgent.toLowerCase();
@@ -173,6 +178,19 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
     }
   };
 
+  const handleGenerateIdeas = async () => {
+    setIsLoadingIdeas(true);
+    try {
+        const { ideas } = await generateStoryIdeas();
+        setStoryIdeas(ideas);
+    } catch (e) {
+        console.error("Failed to generate story ideas", e);
+        setError("I couldn't think of any ideas right now. Please try again.");
+    } finally {
+        setIsLoadingIdeas(false);
+    }
+  };
+
   const base64ToArrayBuffer = (base64: string) => {
     const binaryString = window.atob(base64);
     const len = binaryString.length;
@@ -270,18 +288,42 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
             )}
           </div>
         </div>
-
-        <button
-          onClick={handleMicClick}
-          disabled={permissionError || anythingLoading}
-          className={`flex items-center justify-center w-40 h-40 rounded-full transition-all duration-300 ease-in-out focus:outline-none focus:ring-4 focus:ring-blue-300
-                      ${isListening 
-                        ? 'bg-red-500 text-white animate-pulse-strong shadow-2xl' 
-                        : 'bg-blue-500 hover:bg-blue-600 text-white shadow-xl'}
-                        disabled:bg-slate-400 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none`}
-        >
-          <Icon name={isListening ? "check" : "microphone"} className="w-20 h-20" />
-        </button>
+        <div className="flex items-center justify-center gap-4">
+            <button
+              onClick={handleMicClick}
+              disabled={permissionError || anythingLoading}
+              className={`flex items-center justify-center w-40 h-40 rounded-full transition-all duration-300 ease-in-out focus:outline-none focus:ring-4 focus:ring-blue-300
+                          ${isListening
+                            ? 'bg-red-500 text-white animate-pulse-strong shadow-2xl'
+                            : 'bg-blue-500 hover:bg-blue-600 text-white shadow-xl'}
+                            disabled:bg-slate-400 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none`}
+            >
+              <Icon name={isListening ? "check" : "microphone"} className="w-20 h-20" />
+            </button>
+            <button onClick={handleGenerateIdeas} disabled={anythingLoading || isLoadingIdeas} className="flex items-center justify-center w-20 h-20 bg-yellow-400 text-white rounded-full hover:bg-yellow-500 transition-transform hover:scale-110 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
+                <Icon name="idea" className="w-12 h-12" />
+            </button>
+        </div>
+        {isLoadingIdeas && <Spinner message="Thinking of some fun ideas..." />}
+        {storyIdeas.length > 0 && (
+            <div className="mt-8 w-full max-w-lg">
+                <ul className="list-none p-0 m-0">
+                    {storyIdeas.map((idea, index) => (
+                        <li key={index} className="flex items-center justify-between gap-2 py-2 border-b border-slate-200">
+                            <span className={`font-semibold text-lg ${ideaColors[index % ideaColors.length]}`}>{idea}</span>
+                            <div className="flex items-center gap-2">
+                                <button onClick={() => speak(idea, undefined, voice, false, true, speakingRate)} disabled={anythingLoading} className="p-2 rounded-full hover:bg-slate-200 transition disabled:opacity-50">
+                                    <Icon name="speaker" className="w-6 h-6 text-blue-500" />
+                                </button>
+                                <button onClick={() => onCreateStory(idea)} disabled={anythingLoading} className="px-4 py-2 bg-blue-500 text-white rounded-full font-bold text-sm hover:bg-blue-600 transition">
+                                    Select
+                                </button>
+                            </div>
+                        </li>
+                    ))}
+                </ul>
+            </div>
+        )}
         
         <div className="mt-8 flex gap-4">
           {!user ? (

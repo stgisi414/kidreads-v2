@@ -1,4 +1,3 @@
-// stgisi414/kidreads-v2/kidreads-v2-5096bbab39cec5b36bff0af2170f45b4a523b759/components/QuizModal.tsx
 import React, { useState, useEffect } from 'react';
 import type { QuizQuestion, QuizResult } from '../types';
 import Icon from './Icon';
@@ -20,6 +19,7 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, onQuizComplet
   const [score, setScore] = useState(0);
   const [showResults, setShowResults] = useState(false);
   const [userAnswers, setUserAnswers] = useState<QuizResult['answers']>([]);
+  const [jiggle, setJiggle] = useState(false);
 
   const { speak, cancel, isSpeaking: isQuizSpeaking } = useTextToSpeech();
   const isSpeaking = isParentSpeaking || isQuizSpeaking;
@@ -53,8 +53,10 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, onQuizComplet
       if (currentQuestionIndex < questions.length - 1) {
         setCurrentQuestionIndex(i => i + 1);
       } else {
+        const finalScore = score + (correct ? 1 : 0);
         setShowResults(true);
-        onQuizComplete({ score: score + (correct ? 1 : 0), answers: [...userAnswers, {
+        speak(`Congratulations! You've completed the quiz. Your score was ${finalScore} out of ${questions.length}.`, undefined, voice, false, true, 1.00);
+        onQuizComplete({ score: finalScore, answers: [...userAnswers, {
             question: questions[currentQuestionIndex].question,
             selected: selectedAnswer!,
             correct: questions[currentQuestionIndex].answer,
@@ -76,6 +78,8 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, onQuizComplet
    const handleSelectAnswer = (option: string) => {
     if (isCorrect !== null) return;
     setSelectedAnswer(option);
+    setJiggle(true);
+    setTimeout(() => setJiggle(false), 300);
     cancel(); // Stop any other speech
     speak(option, undefined, voice, false, true, speakingRate);
   };
@@ -96,7 +100,11 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, onQuizComplet
 
         {showResults ? (
           <div className="text-center">
-            <h2 className="text-4xl font-black text-blue-600 mb-4">Quiz Complete!</h2>
+            <h2 className="text-4xl font-black text-blue-600 mb-4">
+              <span className="fade-in-star inline-block" style={{animationDelay: '0.2s'}}>⭐</span>
+              Quiz Complete!
+              <span className="fade-in-star inline-block" style={{animationDelay: '0.2s'}}>⭐</span>
+            </h2>
             <p className="text-2xl text-slate-700 mb-6">Your score: <span className="font-bold text-green-500">{score}</span> / {questions.length}</p>
             <div className="flex justify-center gap-4">
               <button onClick={handleRestart} className="flex items-center gap-2 px-6 py-3 bg-blue-500 text-white rounded-full font-bold text-lg hover:bg-blue-600 transition-transform hover:scale-105 shadow-lg"><Icon name="retry" className="w-6 h-6"/>Restart Quiz</button>
@@ -123,10 +131,10 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, onQuizComplet
                     onClick={() => handleSelectAnswer(option)}
                     disabled={isCorrect !== null || isSpeaking}
                     className={`p-4 rounded-xl text-lg font-semibold text-left transition-all duration-300 border-4
-                      ${isTheCorrectAnswer ? 'bg-green-100 border-green-400 text-green-800' : ''}
-                      ${isTheIncorrectAnswer ? 'bg-red-100 border-red-400 text-red-800' : ''}
+                      ${isTheCorrectAnswer ? `bg-green-100 border-green-400 text-green-800 animate-tada` : ''}
+                      ${isTheIncorrectAnswer ? `bg-red-100 border-red-400 text-red-800 animate-shake` : ''}
                       ${!isSelected && isCorrect === null ? 'bg-slate-100 border-slate-200 hover:bg-blue-100 hover:border-blue-300' : ''}
-                      ${isSelected && isCorrect === null ? 'bg-blue-200 border-blue-400' : ''}
+                      ${isSelected && isCorrect === null ? `bg-blue-200 border-blue-400 ${jiggle ? 'animate-jiggle' : ''}` : ''}
                       ${isCorrect !== null ? 'cursor-not-allowed' : 'cursor-pointer'}
                     `}
                   >

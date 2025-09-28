@@ -8,6 +8,7 @@ const googleCloudTTSCallable = httpsCallable(functions, 'googleCloudTTS');
 const transcribeAudioCallable = httpsCallable(functions, 'transcribeAudio');
 const getTimedTranscriptCallable = httpsCallable(functions, 'getTimedTranscript');
 const checkWordMatchCallable = httpsCallable(functions, 'checkWordMatch');
+const generateStoryIdeasCallable = httpsCallable(functions, 'generateStoryIdeas');
 
 // Define types for the function return data
 type StoryResponse = { title: string; text: string; illustration: string; quiz: any[]; };
@@ -16,6 +17,7 @@ type TranscriptionResponse = { transcription?: string; };
 type TimedTranscriptResponse = { transcript?: any[]; };
 type WordMatchResponse = { isMatch: boolean; };
 type PhonemeResponse = { phonemes: string[]; definition: string | null; };
+type StoryIdeasResponse = { ideas: string[] };
 
 // Export new functions that use the callable references
 export const generateStoryAndIllustration = async (topic: string): Promise<StoryResponse> => {
@@ -54,4 +56,9 @@ export const getTimedTranscript = async (audio: string, text: string): Promise<T
 export const checkWordMatch = async (transcribedWord: string, expectedWord: string): Promise<WordMatchResponse> => {
     const result = await checkWordMatchCallable({ transcribedWord, expectedWord });
     return result.data as WordMatchResponse;
+};
+
+export const generateStoryIdeas = async (): Promise<StoryIdeasResponse> => {
+    const result = await generateStoryIdeasCallable();
+    return result.data as StoryIdeasResponse;
 };

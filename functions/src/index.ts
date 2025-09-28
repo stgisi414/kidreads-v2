@@ -501,3 +501,57 @@ export const deleteStoryImage = onDocumentDeleted("users/{userId}/stories/{story
         logger.error(`Failed to delete image for story ${event.params.storyId}:`, error);
     }
 });
+
+export const generateStoryIdeas = onRequest(
+    { secrets: ["API_KEY"], maxInstances: 10, region: "us-central1" },
+    async (request, response: ExpressResponse) => {
+        corsHandler(request, response, async () => {
+            const GEMINI_API_KEY = process.env.API_KEY;
+            if (!GEMINI_API_KEY) {
+                logger.error("API_KEY not configured in environment.");
+                response.status(500).send({ error: "Internal Server Error: API key not found." });
+                return;
+            }
+
+            try {
+                const modelUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
+                const prompt = `Generate 3-4 creative and simple story ideas for a 5-year-old child. The ideas should be about friendship, animals, and nature, and should be no more than 5-7 words each. Your response MUST be a valid JSON object with a single key "ideas" which is an array of strings.
+                Example:
+                {
+                    "ideas": [
+                        "A squirrel who lost his acorn",
+                        "The rainbow-colored butterfly",
+                        "A bear who loves to dance"
+                    ]
+                }`;
+
+                const apiRequest = {
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                    },
+                };
+
+                const apiResponse = await fetch(modelUrl, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(apiRequest),
+                });
+
+                if (!apiResponse.ok) {
+                    const errorText = await apiResponse.text();
+                    logger.error("Error from Gemini API:", errorText);
+                    throw new Error(`Gemini API failed with status ${apiResponse.status}`);
+                }
+
+                const data = await apiResponse.json();
+                const ideas = JSON.parse(data.candidates[0].content.parts[0].text);
+
+                response.status(200).send({ data: ideas });
+            } catch (error) {
+                logger.error("Error in generateStoryIdeas:", error);
+                response.status(500).send({ error: "Could not generate story ideas." });
+            }
+        });
+    }
+);
