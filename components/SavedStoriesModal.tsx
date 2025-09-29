@@ -63,7 +63,7 @@ const SavedStoriesModal: React.FC<SavedStoriesModalProps> = ({ user, savedStorie
         <QuizResultsModal story={selectedStoryForResults} onClose={() => setSelectedStoryForResults(null)} />
       )}
       <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-40">
-        <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-2xl w-full animate-fade-in-up flex flex-col max-h-[90vh]">
+        <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-2xl w-full animate-fade-in-up flex flex-col max-h-[90vh] relative">
           <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 z-10">
             <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
@@ -118,7 +118,7 @@ const SavedStoriesModal: React.FC<SavedStoriesModalProps> = ({ user, savedStorie
       {copiedLink && (
         <div
           className="fixed bg-slate-800 text-white text-sm font-semibold py-1 px-3 rounded-md shadow-lg z-[9999999] whitespace-nowrap"
-          style={{ top: copiedLink.top +15, left: copiedLink.left, transform: 'translateX(-50%)' }}
+          style={{ top: copiedLink.top + 15, left: copiedLink.left, transform: 'translateX(-50%)' }}
         >
           Link Copied!
         </div>
