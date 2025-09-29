@@ -78,46 +78,6 @@ const App: React.FC = () => {
     }
   }, [screen]);
 
-  let pageContent;
-  if (screen === 'share') {
-    pageContent = (
-      <ErrorBoundary>
-        <ShareStoryScreen user={user} />
-      </ErrorBoundary>
-    );
-  } else if (screen === 'home') {
-    pageContent = (
-      <ErrorBoundary>
-        <HomeScreen
-          user={user}
-          onCreateStory={handleCreateStory}
-          onLoadStory={handleLoadStory}
-          isLoading={isLoading}
-          loadingMessage={loadingMessage}
-          error={error}
-          voice={voice}
-          onVoiceChange={handleVoiceChange}
-          speakingRate={speakingRate}
-          onSpeakingRateChange={handleSpeakingRateChange}
-          setError={setError}
-        />
-      </ErrorBoundary>
-    );
-  } else if (story) {
-    pageContent = (
-      <ErrorBoundary>
-        <StoryScreen
-          user={user}
-          story={story}
-          onGoHome={handleGoHome}
-          voice={voice}
-          speakingRate={speakingRate}
-          isInitiallySaved={isInitiallySaved}
-        />
-      </ErrorBoundary>
-    );
-  }
-
   const handleVoiceChange = useCallback(
     (newVoice: string) => {
       setVoice(newVoice);
@@ -190,6 +150,46 @@ const App: React.FC = () => {
     setIsInitiallySaved(true); // A loaded story is already saved
     setScreen("story");
   }, []);
+
+  let pageContent;
+  if (screen === 'share') {
+    pageContent = (
+      <ErrorBoundary>
+        <ShareStoryScreen user={user} />
+      </ErrorBoundary>
+    );
+  } else if (screen === 'home') {
+    pageContent = (
+      <ErrorBoundary>
+        <HomeScreen
+          user={user}
+          onCreateStory={handleCreateStory}
+          onLoadStory={handleLoadStory}
+          isLoading={isLoading}
+          loadingMessage={loadingMessage}
+          error={error}
+          voice={voice}
+          onVoiceChange={handleVoiceChange}
+          speakingRate={speakingRate}
+          onSpeakingRateChange={handleSpeakingRateChange}
+          setError={setError}
+        />
+      </ErrorBoundary>
+    );
+  } else if (story) {
+    pageContent = (
+      <ErrorBoundary>
+        <StoryScreen
+          user={user}
+          story={story}
+          onGoHome={handleGoHome}
+          voice={voice}
+          speakingRate={speakingRate}
+          isInitiallySaved={isInitiallySaved}
+        />
+      </ErrorBoundary>
+    );
+  }
 
   return (
     <div className="min-h-screen w-full flex flex-col items-center p-4 bg-sky-50 text-slate-800">

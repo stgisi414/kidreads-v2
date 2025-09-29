@@ -67,7 +67,7 @@ const SavedStoriesModal: React.FC<SavedStoriesModalProps> = ({ user, savedStorie
             {savedStories.length > 0 ? (
               <ul className={`space-y-4 ${!allImagesLoaded ? 'hidden' : ''}`}>
                 {savedStories.map(story => (
-                <li key={story.id} className="flex flex-col md:flex-row md:items-center justify-between p-4 bg-slate-100 rounded-lg">
+                <li key={story.id} className="flex flex-col md:flex-row md:items-center justify-between p-4 bg-slate-100 rounded-lg relative">
                   <div className="flex items-center w-full mb-2 md:mb-0">
                     <img 
                       src={story.illustration} 
@@ -83,21 +83,22 @@ const SavedStoriesModal: React.FC<SavedStoriesModalProps> = ({ user, savedStorie
                       {story.title}
                     </span>
                   </div>
-                  <div className="flex gap-2 justify-end w-full md:w-auto relative">
+                  <div className="flex gap-2 justify-end w-full md:w-auto">
                       <div className="relative">
-                          <button 
-                              onClick={() => handleShareStory(story.id)} 
-                              disabled={isSpeaking || !allImagesLoaded} 
-                              className="p-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition disabled:bg-gray-400"
-                              title="Share Story"
-                          >
-                              {copiedLink === story.id ? <Icon name="check" className="w-6 h-6"/> : <Icon name="share" className="w-6 h-6"/>}
-                          </button>
-                          {copiedLink === story.id && (
-                              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-slate-800 text-white text-sm font-semibold py-1 px-3 rounded-md shadow-lg z-20 whitespace-nowrap">
-                                  Link Copied!
-                              </div>
-                          )}
+                        <button
+                          onClick={() => handleShareStory(story.id)}
+                          disabled={isSpeaking || !allImagesLoaded}
+                          className="p-2 bg-blue-500 text-white rounded-full hover:bg-blue-600 transition disabled:bg-gray-400"
+                          title="Share Story"
+                        >
+                          {copiedLink === story.id ? <Icon name="check" className="w-6 h-6"/> : <Icon name="share" className="w-6 h-6"/>}
+                        </button>
+                        {copiedLink === story.id && (
+                          // SOLUTION: Changed positioning classes to show tooltip below the button.
+                          <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 bg-slate-800 text-white text-sm font-semibold py-1 px-3 rounded-md shadow-lg z-20 whitespace-nowrap">
+                            Link Copied!
+                          </div>
+                        )}
                       </div>
                       <button onClick={() => !isSpeaking && setSelectedStoryForResults(story)} disabled={isSpeaking || !allImagesLoaded} className="p-2 bg-purple-500 text-white rounded-full hover:bg-purple-600 transition disabled:bg-gray-400" title="View Quiz Results"><Icon name="results" className="w-6 h-6"/></button>
                       <button onClick={() => !isSpeaking && onLoadStory(story)} disabled={isSpeaking || !allImagesLoaded} className="p-2 bg-green-500 text-white rounded-full hover:bg-green-600 transition disabled:bg-gray-400" title="Read Story"><Icon name="play" className="w-6 h-6"/></button>
