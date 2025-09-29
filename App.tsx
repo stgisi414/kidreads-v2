@@ -67,16 +67,54 @@ const App: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  if (screen === "share") {
-    return (
-      <div className="min-h-screen w-full flex flex-col items-center p-4 bg-sky-50 text-slate-800">
-        <Header onGoHome={handleGoHome} user={user} />
-        <main className="w-full max-w-4xl mx-auto flex-grow flex items-center justify-center">
-            <ErrorBoundary>
-                <ShareStoryScreen user={user} />
-            </ErrorBoundary>
-        </main>
-      </div>
+  const handleGoHome = useCallback(() => {
+    // Navigate to the root URL if on the share screen
+    if (screen === 'share') {
+      window.location.href = '/';
+    } else {
+      setStory(null);
+      setScreen("home");
+      setError(null);
+    }
+  }, [screen]);
+
+  let pageContent;
+  if (screen === 'share') {
+    pageContent = (
+      <ErrorBoundary>
+        <ShareStoryScreen user={user} />
+      </ErrorBoundary>
+    );
+  } else if (screen === 'home') {
+    pageContent = (
+      <ErrorBoundary>
+        <HomeScreen
+          user={user}
+          onCreateStory={handleCreateStory}
+          onLoadStory={handleLoadStory}
+          isLoading={isLoading}
+          loadingMessage={loadingMessage}
+          error={error}
+          voice={voice}
+          onVoiceChange={handleVoiceChange}
+          speakingRate={speakingRate}
+          onSpeakingRateChange={handleSpeakingRateChange}
+          setError={setError}
+        />
+      </ErrorBoundary>
+    );
+  } else if (story) {
+    pageContent = (
+      <ErrorBoundary>
+        <StoryScreen
+          user={user}
+          story={story}
+          onGoHome={handleGoHome}
+          voice={voice}
+          speakingRate={speakingRate}
+          isInitiallySaved={isInitiallySaved}
+        />
+      </ErrorBoundary>
     );
   }
 
@@ -144,17 +182,6 @@ const App: React.FC = () => {
     }
   }, []);
 
-  const handleGoHome = useCallback(() => {
-    // Navigate to the root URL if on the share screen
-    if (screen === 'share') {
-      window.location.href = '/';
-    } else {
-      setStory(null);
-      setScreen("home");
-      setError(null);
-    }
-  }, [screen]);
-
   const handleLoadStory = useCallback(async (storyToLoad: Story) => {
     if (Tone.context.state !== "running") {
       await Tone.start();
@@ -166,40 +193,10 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen w-full flex flex-col items-center p-4 bg-sky-50 text-slate-800">
-      {screen === "story" && <Header onGoHome={handleGoHome} user={user} />}
+      {/* Conditionally render Header based on screen */}
+      {(screen === "story" || screen === "share") && <Header onGoHome={handleGoHome} user={user} />}
       <main className="w-full max-w-4xl mx-auto flex-grow flex items-center justify-center">
-        {authLoading ? (
-          <Spinner message="Loading your profile..." />
-        ) : screen === "home" ? (
-          <ErrorBoundary>
-            <HomeScreen
-              user={user}
-              onCreateStory={handleCreateStory}
-              onLoadStory={handleLoadStory}
-              isLoading={isLoading}
-              loadingMessage={loadingMessage}
-              error={error}
-              voice={voice}
-              onVoiceChange={handleVoiceChange}
-              speakingRate={speakingRate}
-              onSpeakingRateChange={handleSpeakingRateChange}
-              setError={setError}
-            />
-          </ErrorBoundary>
-        ) : (
-          story && (
-            <ErrorBoundary>
-              <StoryScreen
-                user={user}
-                story={story}
-                onGoHome={handleGoHome}
-                voice={voice}
-                speakingRate={speakingRate}
-                isInitiallySaved={isInitiallySaved}
-              />
-            </ErrorBoundary>
-          )
-        )}
+        {authLoading ? <Spinner message="Loading your profile..." /> : pageContent}
       </main>
     </div>
   );
