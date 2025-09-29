@@ -53,8 +53,8 @@ const SavedStoriesModal: React.FC<SavedStoriesModalProps> = ({ user, savedStorie
       {selectedStoryForResults && (
         <QuizResultsModal story={selectedStoryForResults} onClose={() => setSelectedStoryForResults(null)} />
       )}
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-        <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-2xl w-full relative animate-fade-in-up flex flex-col">
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-40">
+        <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-2xl w-full animate-fade-in-up flex flex-col max-h-[90vh]">
           <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 z-10">
             <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
@@ -62,10 +62,10 @@ const SavedStoriesModal: React.FC<SavedStoriesModalProps> = ({ user, savedStorie
           
           {shareError && <p className="text-center text-red-500 font-semibold mb-4">{shareError}</p>}
           
-          <div className="overflow-y-auto max-h-96">
+          <div className="overflow-y-auto flex-grow">
             {!allImagesLoaded && <Spinner message="Loading saved stories..." />}
             {savedStories.length > 0 ? (
-              <ul className={`space-y-4 ${!allImagesLoaded ? 'hidden' : ''}`}>
+              <ul className={`space-y-4 overflow-y-auto max-h-96 ${!allImagesLoaded ? 'hidden' : ''}`}>
                 {savedStories.map(story => (
                 <li key={story.id} className="flex flex-col md:flex-row md:items-center justify-between p-4 bg-slate-100 rounded-lg relative">
                   <div className="flex items-center w-full mb-2 md:mb-0">
@@ -95,7 +95,7 @@ const SavedStoriesModal: React.FC<SavedStoriesModalProps> = ({ user, savedStorie
                         </button>
                         {copiedLink === story.id && (
                           // SOLUTION: Changed positioning classes to show tooltip below the button.
-                          <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 bg-slate-800 text-white text-sm font-semibold py-1 px-3 rounded-md shadow-lg z-20 whitespace-nowrap">
+                          <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 bg-slate-800 text-white text-sm font-semibold py-1 px-3 rounded-md shadow-lg z-[9999999] whitespace-nowrap">
                             Link Copied!
                           </div>
                         )}
