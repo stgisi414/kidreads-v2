@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Spinner from './Spinner';
 import Icon from './Icon';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
-import { transcribeAudio, generateStoryIdeas } from '../services/geminiService';
+import { transcribeAudio, generateStoryIdeas, generateLocationStoryIdeas } from '../services/geminiService';
 import SavedStoriesModal from './SavedStoriesModal';
 import type { Story } from '../types';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
@@ -42,6 +42,11 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
   const [isVoicePreviewing, setIsVoicePreviewing] = useState(false);
   const [storyIdeas, setStoryIdeas] = useState<string[]>([]);
   const [isLoadingIdeas, setIsLoadingIdeas] = useState(false);
+  const [userLocation, setUserLocation] = useState<GeolocationCoordinates | null>(null);
+  const [locationStoryIdeas, setLocationStoryIdeas] = useState<string[]>([]);
+  const [isLoadingLocationIdeas, setIsLoadingLocationIdeas] = useState(false);
+  const [locationInput, setLocationInput] = useState('');
+  const [locationError, setLocationError] = useState<string | null>(null);
 
   const isDisallowedUserAgent = () => {
     const userAgent = window.navigator.userAgent.toLowerCase();
@@ -203,12 +208,68 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
     }
     return bytes.buffer;
   };
-  
-  const anythingLoading = isLoading || isTranscribing || isVoicePreviewing;
+
+  const anythingLoading = isLoading || isTranscribing || isVoicePreviewing || isLoadingIdeas || isLoadingLocationIdeas;
 
   if (isLoading || isTranscribing) {
     return <Spinner message={isTranscribing ? "Thinking about your topic..." : (loadingMessage || "Loading...")} />;
   }
+
+  const handleGetLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setUserLocation(position.coords);
+          setLocationError(null);
+          handleGenerateLocationIdeas(position.coords);
+        },
+        (error) => {
+          console.error("Error getting user location:", error.message);
+          setLocationError("Could not get your location. Please ensure location services are enabled.");
+        }
+      );
+    } else {
+      setLocationError("Geolocation is not supported by this browser.");
+    }
+  };
+  
+  const handleGenerateLocationIdeas = async (coords?: GeolocationCoordinates) => {
+      const coordinates = coords || userLocation;
+      if (!coordinates) {
+        if (locationInput) {
+           // User has typed a location manually
+           setIsLoadingLocationIdeas(true);
+           setLocationStoryIdeas([]);
+           setError(null);
+           try {
+               const { ideas, location } = await generateLocationStoryIdeas(0, 0); // Coords are not used, locationInput is
+               setLocationStoryIdeas(ideas);
+               setLocationInput(location);
+           } catch (e) {
+                console.error("Failed to generate location story ideas from input", e);
+                setError("I couldn't think of any ideas for that location. Please try another one.");
+           } finally {
+                setIsLoadingLocationIdeas(false);
+           }
+           return;
+        }
+          setError("Could not get your location. Please try again.");
+          return;
+      }
+      setIsLoadingLocationIdeas(true);
+      setLocationStoryIdeas([]);
+      setError(null);
+      try {
+          const { ideas, location } = await generateLocationStoryIdeas(coordinates.latitude, coordinates.longitude);
+          setLocationStoryIdeas(ideas);
+          setLocationInput(location);
+      } catch (e) {
+          console.error("Failed to generate location story ideas", e);
+          setError("I couldn't think of any ideas for that location. Please try another one.");
+      } finally {
+          setIsLoadingLocationIdeas(false);
+      }
+  };
   
   const isListening = recorderState.status === 'recording';
 
@@ -322,7 +383,23 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
             <button onClick={handleGenerateIdeas} disabled={anythingLoading || isLoadingIdeas} className="flex items-center justify-center w-20 h-20 bg-yellow-400 text-white rounded-full hover:bg-yellow-500 transition-transform hover:scale-110 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
                 <Icon name="idea" className="w-12 h-12" />
             </button>
+            {userLocation && (
+              <button onClick={handleGenerateLocationIdeas} disabled={anythingLoading || isLoadingLocationIdeas} className="flex items-center justify-center w-16 h-16 bg-teal-400 text-white rounded-full hover:bg-teal-500 transition-transform hover:scale-110 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
+                  <Icon name="location" className="w-10 h-10" />
+              </button>
+            )}
         </div>
+        {!userLocation && (
+          <div className="mt-4">
+            <button onClick={handleGetLocation} className="text-blue-600 hover:underline">
+              Share your location for local story ideas!
+            </button>
+          </div>
+        )}
+
+        {locationError && (
+          <p className="mt-4 text-sm font-semibold text-red-500 bg-red-100 p-2 rounded-lg">{locationError}</p>
+        )}
         {isLoadingIdeas && <Spinner message="Thinking of some fun ideas..." />}
         {storyIdeas.length > 0 && (
             <div className="mt-8 w-full max-w-lg">
@@ -341,6 +418,37 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
                         </li>
                     ))}
                 </ul>
+            </div>
+        )}
+
+        {isLoadingLocationIdeas && <Spinner message={`Thinking of stories about ${locationInput}...`} />}
+        {locationStoryIdeas.length > 0 && (
+            <div className="mt-8 w-full max-w-lg p-4 bg-teal-50 rounded-2xl shadow-inner">
+                <h3 className="text-xl font-bold text-teal-700 mb-2">Story ideas about your location!</h3>
+                <ul className="list-none p-0 m-0">
+                    {locationStoryIdeas.map((idea, index) => (
+                        <li key={index} className="flex items-center justify-between gap-2 py-2 border-b border-teal-200">
+                            <span className={`font-semibold text-lg ${ideaColors[index % ideaColors.length]}`}>{idea}</span>
+                            <div className="flex items-center gap-2">
+                                <button onClick={() => speak(idea, undefined, voice, false, true, speakingRate)} disabled={anythingLoading} className="p-2 rounded-full hover:bg-teal-100 transition disabled:opacity-50">
+                                    <Icon name="speaker" className="w-6 h-6 text-teal-500" />
+                                </button>
+                                <button onClick={() => onCreateStory(idea, storyLength)} disabled={anythingLoading} className="px-4 py-2 bg-teal-500 text-white rounded-full font-bold text-sm hover:bg-teal-600 transition">
+                                    Select
+                                </button>
+                            </div>
+                        </li>
+                    ))}
+                </ul>
+                <div className="mt-4">
+                    <input 
+                        type="text"
+                        value={locationInput}
+                        onChange={(e) => setLocationInput(e.target.value)}
+                        placeholder="Enter a location"
+                        className="w-full p-2 border-2 border-teal-200 rounded-lg"
+                    />
+                </div>
             </div>
         )}
         

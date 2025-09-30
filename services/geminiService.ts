@@ -28,12 +28,6 @@ const withTimeout = <T>(promise: Promise<T>, ms = 10000): Promise<T> => {
   });
 };
 
-// Helper to safely parse JSON that might be wrapped in markdown
-const cleanAndParseJson = (text: string) => {
-  const cleanedText = text.replace(/^```json\s*/, "").replace(/```$/, "");
-  return JSON.parse(cleanedText);
-};
-
 // Create callable function references
 const generateStoryAndIllustrationCallable = httpsCallable(functions, 'generateStoryAndIllustration');
 const getPhonemesForWordCallable = httpsCallable(functions, 'getPhonemesForWord');
@@ -42,6 +36,7 @@ const transcribeAudioCallable = httpsCallable(functions, 'transcribeAudio');
 const getTimedTranscriptCallable = httpsCallable(functions, 'getTimedTranscript');
 const checkWordMatchCallable = httpsCallable(functions, 'checkWordMatch');
 const generateStoryIdeasCallable = httpsCallable(functions, 'generateStoryIdeas');
+const generateLocationStoryIdeasCallable = httpsCallable(functions, 'generateLocationStoryIdeas');
 
 // Define types for the function return data
 type StoryResponse = { title: string; text: string; illustration: string; quiz: any[]; };
@@ -51,11 +46,17 @@ type TimedTranscriptResponse = { transcript?: any[]; };
 type WordMatchResponse = { isMatch: boolean; };
 type PhonemeResponse = { phonemes: string[]; definition: string | null; };
 type StoryIdeasResponse = { ideas: string[] };
+type LocationStoryIdeasResponse = { ideas: string[] };
 
 // Export new functions that use the callable references
 export const generateStoryAndIllustration = async (topic: string, storyLength: number): Promise<StoryResponse> => {
-  const result = await generateStoryAndIllustrationCallable({ topic, storyLength });
-  return result.data as StoryResponse;
+  try {
+    const result = await generateStoryAndIllustrationCallable({ topic, storyLength });
+    return result.data as StoryResponse;
+  } catch (error) {
+    console.error("Error generating story and illustration:", error);
+    throw new Error("Failed to generate story. Please try again.");
+  }
 };
 
 export const getPhonemesForWord = async (word: string): Promise<PhonemeResponse> => {
@@ -82,8 +83,8 @@ export const transcribeAudio = async (audio: string): Promise<TranscriptionRespo
     return result.data as TranscriptionResponse;
 };
 
-export const getTimedTranscript = async (audio: string, text: string): Promise<TimedTranscriptResponse> => {
-  const result = await getTimedTranscriptCallable({ audio, text });
+export const getTimedTranscript = async (audio: string, text: string, speakingRate: number, duration: number): Promise<TimedTranscriptResponse> => {
+  const result = await getTimedTranscriptCallable({ audio, text, speakingRate, duration });
   return result.data as TimedTranscriptResponse;
 };
 
@@ -95,4 +96,9 @@ export const checkWordMatch = async (transcribedWord: string, expectedWord: stri
 export const generateStoryIdeas = async (): Promise<StoryIdeasResponse> => {
     const result = await generateStoryIdeasCallable();
     return result.data as StoryIdeasResponse;
+};
+
+export const generateLocationStoryIdeas = async (location: string): Promise<LocationStoryIdeasResponse> => {
+    const result = await generateLocationStoryIdeasCallable({ location });
+    return result.data as LocationStoryIdeasResponse;
 };

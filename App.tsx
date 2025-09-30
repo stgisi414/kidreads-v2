@@ -207,6 +207,7 @@ const App: React.FC = () => {
           voice={voice}
           speakingRate={speakingRate}
           isInitiallySaved={isInitiallySaved}
+          setError={setError}
         />
       </ErrorBoundary>
     );

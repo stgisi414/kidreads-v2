@@ -19,6 +19,7 @@ type StoryScreenProps = {
   voice: string;
   speakingRate: number;
   isInitiallySaved: boolean;
+  setError: (error: string | null) => void;
 };
 
 type Feedback = 'correct' | 'incorrect' | null;
@@ -28,7 +29,7 @@ const normalizeText = (text: string) => {
     return text.trim().toLowerCase().replace(/[.,!?;:"']/g, '');
 };
 
-const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onGoHome, voice, speakingRate, isInitiallySaved }) => {
+const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onGoHome, voice, speakingRate, isInitiallySaved, setError }) => {
   const [readingMode, setReadingMode] = useState<ReadingMode>(ReadingMode.WORD);
   const [currentSentenceIndex, setCurrentSentenceIndex] = useState(0);
   const [currentWordIndex, setCurrentWordIndex] = useState(0);
@@ -243,26 +244,36 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
     const onEnd = () => {
         setIsReadingFullStory(false);
         setFullStoryHighlightIndex(-1);
-        setFlowState('INITIAL'); 
+        setFlowState('INITIAL');
     };
 
     try {
-      const { audioContent, play } = await speak(story.text, onEnd, voice, false, false, speakingRate);
+      const { audioContent, play, duration } = await speak(story.text, onEnd, voice, false, false, speakingRate);
 
       if (audioContent) {
           setFullStoryLoadingMessage('Syncing audio with text...');
           try {
-              const { transcript } = await getTimedTranscript(audioContent, story.text);
+              const { transcript } = await getTimedTranscript(audioContent, story.text, speakingRate, duration);
               console.log("Received transcript:", transcript); // DEBUG LOG
               if (play) play(); // Start playback
 
-              if (transcript && Array.isArray(transcript)) {
+              if (transcript && Array.isArray(transcript) && transcript.length > 0) {
+                  // The AI's total time might not match the actual audio duration.
+                  // We calculate a correction factor to stretch the timestamps.
+                  const lastWord = transcript[transcript.length - 1];
+                  const transcriptDuration = parseFloat(lastWord.endTime || lastWord.startTime);
+                  console.log("correction factor: " + (duration / transcriptionDuration));
+                  const correctionFactor = duration / transcriptDuration; //sick ai shit
+
+                  console.log(`Audio Duration: ${duration}s, Transcript Duration: ${transcriptDuration}s, Correction Factor: ${correctionFactor}`);
+
                   let searchFromIndex = 0;
                   transcript.forEach(item => {
                       const { word, startTime } = item;
-                      // Adjust timing based on speaking rate
-                      const startTimeMs = (parseFloat(startTime) * 1000);
-                      console.log(`Word: "${word}", Original Time: ${startTime}s, Adjusted Time: ${startTimeMs}ms`); // DEBUG LOG
+                      
+                      // Apply the correction factor to get the true start time.
+                      const startTimeMs = (parseFloat(startTime) * 1000) * correctionFactor;
+                      console.log(`Word: "${word}", Original Time: ${startTime}s, Corrected Time: ${startTimeMs}ms`);
 
                       const wordIndex = story.words.findIndex(
                           (storyWord, index) => index >= searchFromIndex && normalizeText(storyWord) === normalizeText(word)
@@ -285,11 +296,14 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
               if(play) play(); // Play audio anyway as a fallback
           }
       }
+    } catch (error) {
+      console.error("Error in handleReadFullStory:", error);
+      setError("Sorry, something went wrong while trying to read the story. Please try again.");
     } finally {
         setIsPreparingFullStory(false);
         setFullStoryLoadingMessage('');
     }
-  }, [story, readingMode, voice, speakingRate, cancel, flowState, currentSentenceIndex, currentWordIndex, speak, wordToSentenceMap]);
+  }, [story, readingMode, voice, speakingRate, cancel, flowState, currentSentenceIndex, currentWordIndex, speak, wordToSentenceMap, setError]);
   
   useEffect(() => {
     if (activeWordRef.current && scrollContainerRef.current) {
