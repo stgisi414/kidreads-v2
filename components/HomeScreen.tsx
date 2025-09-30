@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Spinner from './Spinner';
 import Icon from './Icon';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
@@ -271,10 +271,15 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
     if (value.length > 2) {
       debounceTimeoutRef.current = setTimeout(async () => {
         try {
-          const { predictions } = await getPlaceAutocomplete(value);
-          setLocationSuggestions(predictions || []);
+          const result = await getPlaceAutocomplete(value);
+          if (result && result.predictions) {
+            setLocationSuggestions(result.predictions);
+          } else {
+            setLocationSuggestions([]);
+          }
         } catch (error) {
           console.error("Error fetching place suggestions:", error);
+          setLocationSuggestions([]);
         }
       }, 300);
     } else {
@@ -468,7 +473,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
                 className="w-full p-2 border-2 border-gray-300 rounded-lg"
             />
             {locationSuggestions.length > 0 && (
-              <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-lg mt-1 max-h-60 overflow-y-auto">
+              <ul className="absolute z-50 w-full bg-white border border-gray-300 rounded-lg mt-1 max-h-60 overflow-y-auto">
                 {locationSuggestions.map((suggestion) => (
                   <li
                     key={suggestion.place_id}
