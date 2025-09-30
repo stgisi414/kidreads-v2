@@ -24,10 +24,6 @@ type StoryScreenProps = {
 type Feedback = 'correct' | 'incorrect' | null;
 type FlowState = 'INITIAL' | 'IDLE' | 'SPEAKING' | 'LISTENING' | 'TRANSCRIBING' | 'EVALUATING' | 'FINISHED';
 
-// This delay compensates for the time it takes for the audio to actually start playing after being called.
-// You can adjust this value in milliseconds to fine-tune the highlighting sync.
-const AUDIO_PLAYBACK_DELAY_MS = 150;
-
 const normalizeText = (text: string) => {
     return text.trim().toLowerCase().replace(/[.,!?;:"']/g, '');
 };
@@ -42,6 +38,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
   const [isQuizVisible, setIsQuizVisible] = useState(false);
   const [isStorySaved, setIsStorySaved] = useState(isInitiallySaved);
   const [flowState, setFlowState] = useState<FlowState>('INITIAL');
+  const [currentStory, setCurrentStory] = useState<Story>(story);
   const [incorrectAttempts, setIncorrectAttempts] = useState(0);
   const [user, setUser] = useState<User | null>(initialUser);
   const [isPreparingFullStory, setIsPreparingFullStory] = useState(false);
@@ -256,22 +253,20 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
           setFullStoryLoadingMessage('Syncing audio with text...');
           try {
               const { transcript } = await getTimedTranscript(audioContent, story.text);
-              console.log("DEBUG: Received transcript:", transcript);
-              
-              if (play) play();
+              console.log("Received transcript:", transcript); // DEBUG LOG
+              if (play) play(); // Start playback
 
               if (transcript && Array.isArray(transcript)) {
                   let searchFromIndex = 0;
                   transcript.forEach(item => {
                       const { word, startTime } = item;
-                      const startTimeMs = (parseFloat(startTime) * 1000) + AUDIO_PLAYBACK_DELAY_MS;
-                      
-                      console.log(`DEBUG: Word: "${word}", Original Time: ${startTime}s, Adjusted Delay: ${startTimeMs}ms`);
+                      // Adjust timing based on speaking rate
+                      const startTimeMs = (parseFloat(startTime) * 1000);
+                      console.log(`Word: "${word}", Original Time: ${startTime}s, Adjusted Time: ${startTimeMs}ms`); // DEBUG LOG
 
                       const wordIndex = story.words.findIndex(
                           (storyWord, index) => index >= searchFromIndex && normalizeText(storyWord) === normalizeText(word)
                       );
-
                       if (wordIndex !== -1) {
                           const timeout = setTimeout(() => {
                               if (readingMode === ReadingMode.SENTENCE) {
@@ -286,8 +281,8 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
                   });
               }
           } catch (error) {
-              console.error("DEBUG: Error getting timed transcript, playing audio as fallback.", error);
-              if(play) play();
+              console.error("Error getting timed transcript:", error);
+              if(play) play(); // Play audio anyway as a fallback
           }
       }
     } finally {
@@ -316,14 +311,14 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
         const isCurrentWord = readingMode === ReadingMode.WORD && !isReadingFullStory && (globalWordIndex === currentWordIndex);
         const isHighlightedForFullStory = isReadingFullStory && (readingMode === ReadingMode.WORD || readingMode === ReadingMode.PHONEME) && globalWordIndex === fullStoryHighlightIndex;
         
-        const isHighlighted = isCurrentWord || isHighlightedForFullStory;
+        const currentRef = isCurrentWord || isHighlightedForFullStory ? activeWordRef : null;
 
         return (
             <span key={`${sentenceIndex}-${localIndex}`} 
-                  ref={isHighlighted ? activeWordRef : null}
+                  ref={currentRef}
                   onClick={() => handleWordClickForPhonemes(word)}
                   className={`transition-all duration-200 p-1 rounded-md
-                    ${isHighlighted ? 'bg-yellow-300' : ''}
+                    ${isCurrentWord || isHighlightedForFullStory ? 'bg-yellow-300' : ''}
                     ${readingMode === ReadingMode.PHONEME ? 'hover:bg-blue-200 cursor-pointer' : ''}
                   `}>
                 {word}{' '}
@@ -353,6 +348,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
       }
   };
 
+
   const handleQuizComplete = useCallback((results: Omit<QuizResult, 'date'>) => {
     if(!user) return;
     const newQuizResults: QuizResult = {
@@ -361,8 +357,9 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
     };
     
     const updatedStory = { ...story, quizResults: newQuizResults };
+    setCurrentStory(updatedStory);
     if (isStorySaved) {
-        updateStory(user.uid, updatedStory);
+      updateStory(user.uid, updatedStory);
     }
   }, [story, user, isStorySaved]);
 
