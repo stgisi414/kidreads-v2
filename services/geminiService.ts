@@ -1,6 +1,33 @@
 import { httpsCallable } from "firebase/functions";
 import { functions } from "../firebase"; // Import the functions instance
 
+// Create a helper function for retries with delays
+const callWithRetry = async <T>(fn: () => Promise<T>, retries = 2, delay = 500): Promise<T> => {
+  try {
+    return await fn();
+  } catch (error) {
+    if (retries > 0) {
+      await new Promise(res => setTimeout(res, delay));
+      return callWithRetry(fn, retries - 1, delay * 2); // Exponential backoff
+    }
+    throw error;
+  }
+};
+
+// Create a helper for timeouts
+const withTimeout = <T>(promise: Promise<T>, ms = 10000): Promise<T> => {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error('Request timed out'));
+    }, ms);
+
+    promise
+      .then(resolve)
+      .catch(reject)
+      .finally(() => clearTimeout(timeout));
+  });
+};
+
 // Create callable function references
 const generateStoryAndIllustrationCallable = httpsCallable(functions, 'generateStoryAndIllustration');
 const getPhonemesForWordCallable = httpsCallable(functions, 'getPhonemesForWord');
@@ -20,8 +47,8 @@ type PhonemeResponse = { phonemes: string[]; definition: string | null; };
 type StoryIdeasResponse = { ideas: string[] };
 
 // Export new functions that use the callable references
-export const generateStoryAndIllustration = async (topic: string): Promise<StoryResponse> => {
-  const result = await generateStoryAndIllustrationCallable({ topic });
+export const generateStoryAndIllustration = async (topic: string, storyLength: number): Promise<StoryResponse> => {
+  const result = await generateStoryAndIllustrationCallable({ topic, storyLength });
   return result.data as StoryResponse;
 };
 
@@ -31,8 +58,9 @@ export const getPhonemesForWord = async (word: string): Promise<PhonemeResponse>
 };
 
 export const getTextToSpeechAudio = async (text: string, voice: string, isWord: boolean = false, speakingRate: number = 1.0): Promise<TTSResponse> => {
-  const result = await googleCloudTTSCallable({ text, voice, isWord, speakingRate });
-  return result.data as TTSResponse;
+    const call = () => withTimeout(googleCloudTTSCallable({ text, voice, isWord, speakingRate }));
+    const result = await callWithRetry(call);
+    return result.data as TTSResponse;
 };
 
 export const transcribeAudio = async (audio: string): Promise<TranscriptionResponse> => {

@@ -1,4 +1,3 @@
-// stgisi414/kidreads-v2/kidreads-v2-7df6b44bd4f2bf2c715452e19497e9223b2b7e86/components/HomeScreen.tsx
 import React, { useState, useEffect, useCallback } from 'react';
 import Spinner from './Spinner';
 import Icon from './Icon';
@@ -14,7 +13,7 @@ import * as Tone from 'tone';
 import ErrorBoundary from './ErrorBoundary';
 
 type HomeScreenProps = {
-  onCreateStory: (topic: string) => void;
+  onCreateStory: (topic: string, storyLength: number) => void;
   onLoadStory: (story: Story) => void;
   isLoading: boolean;
   loadingMessage: string;
@@ -23,13 +22,16 @@ type HomeScreenProps = {
   onVoiceChange: (voice: 'Leda' | 'Orus') => void;
   speakingRate: number;
   onSpeakingRateChange: (rate: number) => void;
+  storyLength: number;
+  onStoryLengthChange: (length: number) => void;
   user: User | null;
   setError: (error: string | null) => void;
 };
 
 const ideaColors = ['text-amber-600', 'text-emerald-600', 'text-sky-600', 'text-rose-600'];
+const lengthLabels = ["Short", "Medium", "Long", "Epic"];
 
-const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStory, isLoading, loadingMessage, error, voice, onVoiceChange, speakingRate, onSpeakingRateChange, setError }) => {
+const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStory, isLoading, loadingMessage, error, voice, onVoiceChange, speakingRate, onSpeakingRateChange, storyLength, onStoryLengthChange, setError }) => {
   const { recorderState, startRecording, stopRecording, permissionError } = useAudioRecorder();
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isStoriesModalVisible, setStoriesModalVisible] = useState(false);
@@ -155,7 +157,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
             try {
                 const { transcription } = await transcribeAudio(audioBase64);
                 if (transcription && transcription.trim()) {
-                    onCreateStory(transcription);
+                    onCreateStory(transcription, storyLength);
                 } else {
                     setError("I couldn't quite catch that. Please try again.");
                 }
@@ -277,6 +279,19 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
               </button>
           </div>
         </div>
+        
+        <div className="w-full max-w-sm mb-6">
+          <h3 className="text-xl font-bold text-slate-700 mb-2">Story Length: <span className="text-blue-600">{lengthLabels[storyLength]}</span></h3>
+          <input
+            type="range"
+            min="0"
+            max="3"
+            value={storyLength}
+            onChange={(e) => onStoryLengthChange(parseInt(e.target.value))}
+            disabled={anythingLoading}
+            className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer"
+          />
+        </div>
 
         <div className="mb-10 space-y-4">
           <h2 className="text-3xl font-bold text-slate-800">What story should we read today?</h2>
@@ -319,7 +334,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
                                 <button onClick={() => speak(idea, undefined, voice, false, true, speakingRate)} disabled={anythingLoading} className="p-2 rounded-full hover:bg-slate-200 transition disabled:opacity-50">
                                     <Icon name="speaker" className="w-6 h-6 text-blue-500" />
                                 </button>
-                                <button onClick={() => onCreateStory(idea)} disabled={anythingLoading} className="px-4 py-2 bg-blue-500 text-white rounded-full font-bold text-sm hover:bg-blue-600 transition">
+                                <button onClick={() => onCreateStory(idea, storyLength)} disabled={anythingLoading} className="px-4 py-2 bg-blue-500 text-white rounded-full font-bold text-sm hover:bg-blue-600 transition">
                                     Select
                                 </button>
                             </div>

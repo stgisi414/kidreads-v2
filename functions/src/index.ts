@@ -26,54 +26,66 @@ const corsHandler = cors({ origin: allowedOrigins });
 const speechClient = new SpeechClient();
 const textToSpeechClient = new TextToSpeechClient();
 
-const STORY_AND_PROMPT_SYSTEM_INSTRUCTION = `You are a creative storyteller and an expert in writing prompts for image generation models.
-Based on the user's topic, you will generate four things in a single JSON object:
-1.  A creative and short title for the story.
-2.  A short, simple, and positive story (2-4 sentences) for a young child that is directly about the user's topic.
-    - FORBIDDEN THEMES: violence, death, scary monsters, sadness, complex topics.
-    - Focus on friendship, animals, nature, and joy.
-    - Do not use complex words or sentence structures.
-3.  A very descriptive and detailed prompt for a colorful, simple, and friendly cartoon illustration that visually represents the story.
-    - The style should be like a children's book illustration, with soft edges and a happy mood.
-    - Crucially, the prompt must include the main characters, the setting, and the key objects or actions mentioned in the story text.
-    - Do not include any of the original text from the story in your prompt. Focus only on describing the visual scene.
-4.  A short quiz with 3 multiple-choice questions based on the story, suitable for K-3 students and grounded in Bloom's Taxonomy. Each question should have a "question" text, an array of "options", and the "answer".
+const STORY_LENGTH_MAP = [
+    "2-4 sentences",    // Short
+    "6-8 sentences",    // Medium
+    "12-16 sentences",  // Long
+    "24-32 sentences"   // Epic
+];
 
-Your response MUST be a valid JSON object with the following structure:
-{
-  "title": "...",
-  "story": "...",
-  "imagePrompt": "...",
-  "quiz": [
-    { "question": "...", "options": ["...", "...", "..."], "answer": "..." },
-    { "question": "...", "options": ["...", "...", "..."], "answer": "..." },
-    { "question": "...", "options": ["...", "...", "..."], "answer": "..." }
-  ]
-}`;
+const getStoryAndPromptSystemInstruction = (storyLength: number): string => {
+    const sentenceCount = STORY_LENGTH_MAP[storyLength] || STORY_LENGTH_MAP[0];
+
+    return `You are a creative storyteller and an expert in writing prompts for image generation models.
+      Based on the user's topic, you will generate four things in a single JSON object:
+      1.  A creative and short title for the story.
+      2.  A simple, and positive story of about ${sentenceCount} for a young child that is directly about the user's topic.
+          - FORBIDDEN THEMES: violence, death, scary monsters, sadness, complex topics.
+          - Focus on friendship, animals, nature, and joy.
+          - Do not use complex words or sentence structures.
+      3.  A very descriptive and detailed prompt for a colorful, simple, and friendly cartoon illustration that visually represents the story.
+          - The style should be like a children's book illustration, with soft edges and a happy mood.
+          - Crucially, the prompt must include the main characters, the setting, and the key objects or actions mentioned in the story text.
+          - Do not include any of the original text from the story in your prompt. Focus only on describing the visual scene.
+      4.  A short quiz with 3 multiple-choice questions based on the story, suitable for K-3 students and grounded in Bloom's Taxonomy. Each question should have a "question" text, an array of "options", and the "answer".
+
+      Your response MUST be a valid JSON object with the following structure:
+      {
+        "title": "...",
+        "story": "...",
+        "imagePrompt": "...",
+        "quiz": [
+          { "question": "...", "options": ["...", "...", "..."], "answer": "..." },
+          { "question": "...", "options": ["...", "...", "..."], "answer": "..." },
+          { "question": "...", "options": ["...", "...", "..."], "answer": "..." }
+        ]
+      }`;
+};
 
 export const generateStoryAndIllustration = onRequest(
   { secrets: ["API_KEY"], maxInstances: 10, region: "us-central1" },
   async (request, response: ExpressResponse) => {
     corsHandler(request, response, async () => {
-        // FIX: The topic is nested inside request.body.data
-        const { topic } = request.body.data;
-        if (!topic) {
-            response.status(400).send({ error: "Topic is required." });
-            return;
-        }
+      const { topic, storyLength } = request.body.data; // Destructure storyLength
+      if (!topic) {
+          response.status(400).send({ error: "Topic is required." });
+          return;
+      }
 
-        const GEMINI_API_KEY = process.env.API_KEY;
-        if (!GEMINI_API_KEY) {
-            logger.error("API_KEY not configured in environment.");
-            response.status(500).send({ error: "Internal Server Error: API key not found." });
-            return;
-        }
+      const systemInstruction = getStoryAndPromptSystemInstruction(storyLength);
+
+      const GEMINI_API_KEY = process.env.API_KEY;
+      if (!GEMINI_API_KEY) {
+          logger.error("API_KEY not configured in environment.");
+          response.status(500).send({ error: "Internal Server Error: API key not found." });
+          return;
+      }
         
       try {
         const modelUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
         const apiRequest = {
           contents: [{ parts: [{ text: `Topic: ${topic}` }] }],
-          system_instruction: { parts: [{ text: STORY_AND_PROMPT_SYSTEM_INSTRUCTION }] },
+          system_instruction: { parts: [{ text: systemInstruction }] },
           generationConfig: {
             temperature: 0.4,
             maxOutputTokens: 2048,

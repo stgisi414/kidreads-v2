@@ -6,6 +6,7 @@ import Spinner from './Spinner';
 import Icon from './Icon';
 import type { User } from 'firebase/auth';
 import { saveStory } from '../services/firestoreService';
+import { loginWithGoogle } from '../services/authService';
 
 type ShareStoryScreenProps = {
   user: User | null;
@@ -17,9 +18,13 @@ const ShareStoryScreen: React.FC<ShareStoryScreenProps> = ({ user }) => {
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+  const [showLogin, setShowLogin] = useState(false);
 
   useEffect(() => {
     const fetchStory = async () => {
+      setIsLoading(true);
+      setError(null);
+      setShowLogin(false);
       try {
         const path = window.location.pathname;
         const parts = path.split('/').filter(p => p);
@@ -36,15 +41,20 @@ const ShareStoryScreen: React.FC<ShareStoryScreenProps> = ({ user }) => {
         } else {
           throw new Error("Sorry, we couldn't find that story.");
         }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'An unknown error occurred.');
+      } catch (err: any) {
+        if (err.code === 'permission-denied') {
+          setError("Please log in to view this story.");
+          setShowLogin(true);
+        } else {
+          setError(err instanceof Error ? err.message : 'An unknown error occurred.');
+        }
       } finally {
         setIsLoading(false);
       }
     };
 
     fetchStory();
-  }, []);
+  }, [user]);
 
   const handleSaveStory = async () => {
     if (!user || !story || isSaved || isSaving) return;
@@ -66,7 +76,22 @@ const ShareStoryScreen: React.FC<ShareStoryScreenProps> = ({ user }) => {
 
   return (
     <div className="w-full max-w-4xl mx-auto p-4">
-      {error && <div className="text-center text-red-500 font-bold mb-4">{error}</div>}
+      {error && (
+        <div className="text-center text-red-500 font-bold mb-4">
+          {error}
+          {showLogin && (
+            <div className="mt-4 flex justify-center">
+              <button
+                onClick={loginWithGoogle}
+                className="flex items-center justify-center gap-2 px-6 py-3 bg-blue-500 text-white rounded-full font-bold text-lg hover:bg-blue-600 transition-transform hover:scale-105 shadow-lg"
+              >
+                <Icon name="login" className="w-6 h-6"/>
+                <span>Login with Google</span>
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       {story && (
         <div className="bg-white p-6 rounded-3xl shadow-xl">
           <h2 className="text-4xl font-black text-center text-blue-600 mb-4">{story.title}</h2>

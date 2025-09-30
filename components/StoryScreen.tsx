@@ -66,6 +66,9 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
   const [currentStory, setCurrentStory] = useState<Story>(story);
   const [incorrectAttempts, setIncorrectAttempts] = useState(0);
   const [user, setUser] = useState<User | null>(initialUser);
+  // Refs for auto-scrolling
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const activeWordRef = useRef<HTMLSpanElement>(null);
 
   const [isReadingFullStory, setIsReadingFullStory] = useState(false);
   const [fullStoryHighlightIndex, setFullStoryHighlightIndex] = useState(-1);
@@ -341,7 +344,16 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
             fallbackToEstimation();
         }
     }
-}, [story, readingMode, voice, speakingRate, cancel, flowState, currentSentenceIndex, currentWordIndex, speak, wordToSentenceMap]);
+  }, [story, readingMode, voice, speakingRate, cancel, flowState, currentSentenceIndex, currentWordIndex, speak, wordToSentenceMap]);
+
+  useEffect(() => {
+    if (activeWordRef.current && scrollContainerRef.current) {
+      activeWordRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center'
+      });
+    }
+  }, [currentWordIndex]);
   
   const getWordSpans = (sentence: string, sentenceIndex: number) => {
     let globalWordIndexOffset = 0;
@@ -356,6 +368,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
 
         return (
             <span key={`${sentenceIndex}-${localIndex}`} 
+                  ref={isCurrentWord ? activeWordRef : null}
                   onClick={() => handleWordClickForPhonemes(word)}
                   className={`transition-all duration-200 p-1 rounded-md
                     ${isCurrentWord || isHighlightedForFullStory ? 'bg-yellow-300' : ''}
@@ -404,7 +417,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
   }, [story, user]);
 
   return (
-    <div className="flex flex-col gap-4 w-full animate-fade-in">
+    <div className="flex flex-col gap-4 w-full h-full animate-fade-in">
         {isQuizVisible && (
             <ErrorBoundary>
               <QuizModal
@@ -417,7 +430,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
               />
             </ErrorBoundary>
         )}
-        <div className="bg-white p-6 rounded-3xl shadow-xl">
+        <div className="bg-white p-6 rounded-3xl shadow-xl flex flex-col flex-grow">
             <h2
                 className={`text-4xl font-black text-center text-blue-600 mb-4 ${isSpeaking ? 'cursor-not-allowed' : 'cursor-pointer'}`}
                 onClick={() => !isSpeaking && speak(story.title, undefined, voice, false, true, speakingRate)}
@@ -426,9 +439,9 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
             </h2>
             <img src={story.illustration} alt="Story illustration" className="w-full h-auto max-h-96 object-contain rounded-2xl mb-6"/>
             
-            <div className="text-3xl leading-relaxed text-slate-700 space-y-4 mb-8">
+            <div ref={scrollContainerRef} className="text-3xl leading-relaxed text-slate-700 space-y-4 mb-8 flex-grow overflow-y-auto max-h-[40vh]">
                 {story.sentences.map((sentence, index) => (
-                  <p key={index} className={`p-1 rounded-md transition-all duration-200 ${(currentSentenceIndex === index && readingMode === ReadingMode.SENTENCE && !isReadingFullStory) || (isReadingFullStory && readingMode === ReadingMode.SENTENCE && fullStoryHighlightIndex === index) ? 'font-bold bg-yellow-200' : ''}`}>
+                  <p key={index} className={`p-1 rounded-md transition-all duration-200 ${((currentSentenceIndex === index && readingMode === ReadingMode.SENTENCE && !isReadingFullStory) || (isReadingFullStory && readingMode === ReadingMode.SENTENCE && fullStoryHighlightIndex === index)) ? 'font-bold bg-yellow-200' : ''}`}>
                     {getWordSpans(sentence, index)}
                   </p>
                 ))}

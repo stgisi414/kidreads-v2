@@ -45,7 +45,7 @@ export const updateStory = async (userId: string, story: Story): Promise<void> =
 };
 
 // Get user preferences (like selected voice)
-export const getUserPreferences = async (userId: string): Promise<{ voice?: string; speakingRate?: number }> => {
+export const getUserPreferences = async (userId: string): Promise<{ voice?: string; speakingRate?: number; storyLength?: number }> => {
   const userDocRef = doc(db, 'users', userId);
   const docSnap = await getDoc(userDocRef);
   if (docSnap.exists()) {
@@ -55,7 +55,7 @@ export const getUserPreferences = async (userId: string): Promise<{ voice?: stri
 };
 
 // Update user preferences
-export const updateUserPreferences = async (userId: string, preferences: { voice?: string; speakingRate?: number }): Promise<void> => {
+export const updateUserPreferences = async (userId: string, preferences: { voice?: string; speakingRate?: number; storyLength?: number }): Promise<void> => {
   const userDocRef = doc(db, 'users', userId);
   await setDoc(userDocRef, { preferences }, { merge: true });
 };

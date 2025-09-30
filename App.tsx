@@ -28,6 +28,7 @@ const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [isInitiallySaved, setIsInitiallySaved] = useState(false);
+  const [storyLength, setStoryLength] = useState<number>(0);
 
   // Set a default voice state, which will be updated from Firestore   or localStorage
   const [voice, setVoice] = useState<string>("Leda");
@@ -56,11 +57,18 @@ const App: React.FC = () => {
           );
           setSpeakingRate(localRate);
         }
+        if (prefs.storyLength !== undefined) {
+          setStoryLength(prefs.storyLength);
+        } else {
+          const localLength = parseInt(localStorage.getItem("storyLength") || "0");
+          setStoryLength(localLength);
+        }
       } else {
         setVoice(localStorage.getItem("selectedVoice") || "Leda");
         setSpeakingRate(
           parseFloat(localStorage.getItem("speakingRate") || "1.0")
         );
+        setStoryLength(parseInt(localStorage.getItem("storyLength") || "0"));
       }
       setAuthLoading(false);
     });
@@ -102,7 +110,18 @@ const App: React.FC = () => {
     [user]
   );
 
-  const handleCreateStory = useCallback(async (topic: string) => {
+  const handleStoryLengthChange = useCallback(
+    (newLength: number) => {
+      setStoryLength(newLength);
+      localStorage.setItem("storyLength", newLength.toString());
+      if (user) {
+        updateUserPreferences(user.uid, { storyLength: newLength });
+      }
+    },
+    [user]
+  );
+
+  const handleCreateStory = useCallback(async (topic: string, length: number) => {
     if (Tone.context.state !== "running") {
       await Tone.start();
     }
@@ -112,7 +131,7 @@ const App: React.FC = () => {
     setError(null);
     try {
       const { title, text, illustration, quiz } =
-        await generateStoryAndIllustration(topic);
+        await generateStoryAndIllustration(topic, length);
 
       const sentences = splitSentences(text);
       const words = text.split(/\s+/).filter((w) => w.length > 0);
@@ -172,6 +191,8 @@ const App: React.FC = () => {
           onVoiceChange={handleVoiceChange}
           speakingRate={speakingRate}
           onSpeakingRateChange={handleSpeakingRateChange}
+          storyLength={storyLength}
+          onStoryLengthChange={handleStoryLengthChange}
           setError={setError}
         />
       </ErrorBoundary>
