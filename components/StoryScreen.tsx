@@ -24,33 +24,12 @@ type StoryScreenProps = {
 type Feedback = 'correct' | 'incorrect' | null;
 type FlowState = 'INITIAL' | 'IDLE' | 'SPEAKING' | 'LISTENING' | 'TRANSCRIBING' | 'EVALUATING' | 'FINISHED';
 
+// This delay compensates for the time it takes for the audio to actually start playing after being called.
+// You can adjust this value in milliseconds to fine-tune the highlighting sync.
+const AUDIO_PLAYBACK_DELAY_MS = 150;
+
 const normalizeText = (text: string) => {
     return text.trim().toLowerCase().replace(/[.,!?;:"']/g, '');
-};
-
-const levenshteinDistance = (a: string, b: string): number => {
-  const matrix = Array(b.length + 1).fill(null).map(() => Array(a.length + 1).fill(null));
-  for (let i = 0; i <= a.length; i += 1) { matrix[0][i] = i; }
-  for (let j = 0; j <= b.length; j += 1) { matrix[j][0] = j; }
-  for (let j = 1; j <= b.length; j += 1) {
-    for (let i = 1; i <= a.length; i += 1) {
-      const indicator = a[i - 1] === b[j - 1] ? 0 : 1;
-      matrix[j][i] = Math.min(
-        matrix[j][i - 1] + 1,
-        matrix[j - 1][i] + 1,
-        matrix[j - 1][i - 1] + indicator,
-      );
-    }
-  }
-  return matrix[b.length][a.length];
-};
-
-const calculateSimilarity = (str1: string, str2: string) => {
-    const distance = levenshteinDistance(str1, str2);
-    const maxLength = Math.max(str1.length, str2.length);
-    if (maxLength === 0) return 100;
-    const similarity = (1 - distance / maxLength) * 100;
-    return similarity;
 };
 
 const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onGoHome, voice, speakingRate, isInitiallySaved }) => {
@@ -63,9 +42,11 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
   const [isQuizVisible, setIsQuizVisible] = useState(false);
   const [isStorySaved, setIsStorySaved] = useState(isInitiallySaved);
   const [flowState, setFlowState] = useState<FlowState>('INITIAL');
-  const [currentStory, setCurrentStory] = useState<Story>(story);
   const [incorrectAttempts, setIncorrectAttempts] = useState(0);
   const [user, setUser] = useState<User | null>(initialUser);
+  const [isPreparingFullStory, setIsPreparingFullStory] = useState(false);
+  const [fullStoryLoadingMessage, setFullStoryLoadingMessage] = useState('');
+
   // Refs for auto-scrolling
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const activeWordRef = useRef<HTMLSpanElement>(null);
@@ -121,7 +102,6 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
       textToRead = story.sentences[currentSentenceIndex];
     }
     
-    console.log(textToRead);
     setFlowState('SPEAKING');
     try {
       speak(textToRead, () => {
@@ -145,21 +125,13 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
       try {
         let isMatch = false;
 
-        // Use local similarity check for sentences
-        if (readingMode === ReadingMode.SENTENCE) {
-            const { transcription } = await transcribeAudio(audioBase64);
-            const expectedText = story.sentences[currentSentenceIndex];
-            const similarity = calculateSimilarity(normalizeText(transcription || ""), normalizeText(expectedText));
-            isMatch = similarity >= 65;
-        } else { // Use cloud function for smarter, phonetic word check
-            const { transcription } = await transcribeAudio(audioBase64);
-            if (!transcription) {
-              throw new Error("Transcription resulted in empty text.");
-            }
-            const expectedWord = story.words[currentWordIndex];
-            const { isMatch: wordIsMatch } = await checkWordMatch(transcription, expectedWord);
-            isMatch = wordIsMatch;
+        const { transcription } = await transcribeAudio(audioBase64);
+        if (!transcription) {
+          throw new Error("Transcription resulted in empty text.");
         }
+        const expectedWord = story.words[currentWordIndex];
+        const { isMatch: wordIsMatch } = await checkWordMatch(transcription, expectedWord);
+        isMatch = wordIsMatch;
         
         setFlowState('EVALUATING');
         if (isMatch) {
@@ -264,6 +236,8 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
     fullStoryTimeoutRef.current = [];
     cancel();
 
+    setIsPreparingFullStory(true);
+    setFullStoryLoadingMessage('Getting the story audio...');
     setPreReadState({ flowState, currentSentenceIndex, currentWordIndex });
     setFlowState('SPEAKING');
     setIsReadingFullStory(true);
@@ -275,77 +249,53 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
         setFlowState('INITIAL'); 
     };
 
-    const { duration, audioContent, play } = await speak(story.text, onEnd, voice, false, false, speakingRate);
+    try {
+      const { audioContent, play } = await speak(story.text, onEnd, voice, false, false, speakingRate);
 
-    const fallbackToEstimation = () => {
-        if (play) play(); // Start playback for fallback
+      if (audioContent) {
+          setFullStoryLoadingMessage('Syncing audio with text...');
+          try {
+              const { transcript } = await getTimedTranscript(audioContent, story.text);
+              console.log("DEBUG: Received transcript:", transcript);
+              
+              if (play) play();
 
-        let milisecondMultiplier = 1000;
-        if (speakingRate === 0.55) {
-            milisecondMultiplier = 1300;
-        }
-        console.log("milisecond multiplier: " + milisecondMultiplier);
+              if (transcript && Array.isArray(transcript)) {
+                  let searchFromIndex = 0;
+                  transcript.forEach(item => {
+                      const { word, startTime } = item;
+                      const startTimeMs = (parseFloat(startTime) * 1000) + AUDIO_PLAYBACK_DELAY_MS;
+                      
+                      console.log(`DEBUG: Word: "${word}", Original Time: ${startTime}s, Adjusted Delay: ${startTimeMs}ms`);
 
-        if (readingMode === ReadingMode.SENTENCE) {
-            const sentences = story.sentences;
-            let cumulativeDelay = 0;
-            for (let i = 0; i < sentences.length; i++) {
-                const sentenceDuration = (sentences[i].length / story.text.length) * duration * milisecondMultiplier;
-                const timeout = setTimeout(() => setFullStoryHighlightIndex(i), cumulativeDelay);
-                fullStoryTimeoutRef.current.push(timeout);
-                cumulativeDelay += sentenceDuration;
-            }
-        } else {
-            const words = story.words;
-            const timePerWord = (duration * milisecondMultiplier) / words.length;
-            for (let i = 0; i < words.length; i++) {
-                const timeout = setTimeout(() => setFullStoryHighlightIndex(i), i * timePerWord);
-                fullStoryTimeoutRef.current.push(timeout);
-            }
-        }
-    };
+                      const wordIndex = story.words.findIndex(
+                          (storyWord, index) => index >= searchFromIndex && normalizeText(storyWord) === normalizeText(word)
+                      );
 
-    if (duration > 0 && audioContent) {
-        try {
-            const { transcript } = await getTimedTranscript(audioContent, story.text);
-            if (play) play(); // Start playback
-
-            let milisecondMultiplier = 1000;
-            if (speakingRate === 0.55) {
-                milisecondMultiplier = 1300;
-            }
-            console.log("milisecond multiplier: " + milisecondMultiplier);
-
-            if (transcript && Array.isArray(transcript)) {
-                let searchFromIndex = 0;
-                transcript.forEach(item => {
-                    const { word, startTime } = item;
-                    const startTimeMs = parseFloat(startTime) * milisecondMultiplier;
-                    const wordIndex = story.words.findIndex(
-                        (storyWord, index) => index >= searchFromIndex && normalizeText(storyWord) === normalizeText(word)
-                    );
-                    if (wordIndex !== -1) {
-                        const timeout = setTimeout(() => {
-                            if (readingMode === ReadingMode.SENTENCE) {
-                                setFullStoryHighlightIndex(wordToSentenceMap[wordIndex]);
-                            } else {
-                                setFullStoryHighlightIndex(wordIndex);
-                            }
-                        }, startTimeMs);
-                        fullStoryTimeoutRef.current.push(timeout);
-                        searchFromIndex = wordIndex + 1;
-                    }
-                });
-            } else {
-                fallbackToEstimation();
-            }
-        } catch (error) {
-            console.error("Error getting timed transcript, falling back to estimation:", error);
-            fallbackToEstimation();
-        }
+                      if (wordIndex !== -1) {
+                          const timeout = setTimeout(() => {
+                              if (readingMode === ReadingMode.SENTENCE) {
+                                  setFullStoryHighlightIndex(wordToSentenceMap[wordIndex]);
+                              } else {
+                                  setFullStoryHighlightIndex(wordIndex);
+                              }
+                          }, startTimeMs);
+                          fullStoryTimeoutRef.current.push(timeout);
+                          searchFromIndex = wordIndex + 1;
+                      }
+                  });
+              }
+          } catch (error) {
+              console.error("DEBUG: Error getting timed transcript, playing audio as fallback.", error);
+              if(play) play();
+          }
+      }
+    } finally {
+        setIsPreparingFullStory(false);
+        setFullStoryLoadingMessage('');
     }
   }, [story, readingMode, voice, speakingRate, cancel, flowState, currentSentenceIndex, currentWordIndex, speak, wordToSentenceMap]);
-
+  
   useEffect(() => {
     if (activeWordRef.current && scrollContainerRef.current) {
       activeWordRef.current.scrollIntoView({
@@ -353,8 +303,8 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
         block: 'center'
       });
     }
-  }, [currentWordIndex]);
-  
+  }, [currentWordIndex, fullStoryHighlightIndex]);
+
   const getWordSpans = (sentence: string, sentenceIndex: number) => {
     let globalWordIndexOffset = 0;
     for(let i=0; i<sentenceIndex; i++) {
@@ -365,13 +315,15 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
         const globalWordIndex = globalWordIndexOffset + localIndex;
         const isCurrentWord = readingMode === ReadingMode.WORD && !isReadingFullStory && (globalWordIndex === currentWordIndex);
         const isHighlightedForFullStory = isReadingFullStory && (readingMode === ReadingMode.WORD || readingMode === ReadingMode.PHONEME) && globalWordIndex === fullStoryHighlightIndex;
+        
+        const isHighlighted = isCurrentWord || isHighlightedForFullStory;
 
         return (
             <span key={`${sentenceIndex}-${localIndex}`} 
-                  ref={isCurrentWord ? activeWordRef : null}
+                  ref={isHighlighted ? activeWordRef : null}
                   onClick={() => handleWordClickForPhonemes(word)}
                   className={`transition-all duration-200 p-1 rounded-md
-                    ${isCurrentWord || isHighlightedForFullStory ? 'bg-yellow-300' : ''}
+                    ${isHighlighted ? 'bg-yellow-300' : ''}
                     ${readingMode === ReadingMode.PHONEME ? 'hover:bg-blue-200 cursor-pointer' : ''}
                   `}>
                 {word}{' '}
@@ -385,15 +337,12 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
 
       cancel();
       setIsLoadingPhonemes(true);
-      // Show loading state for both phonemes and definition
       setPhonemeData({ word, phonemes: ['...'], definition: '...' }); 
 
       try {
-          // The response now contains both phonemes and an optional definition
           const { phonemes, definition } = await getPhonemesForWord(word);
           setPhonemeData({ word, phonemes, definition });
 
-          // Speak the word itself
           speak(word, undefined, voice, true, true, speakingRate);
 
       } catch (e) {
@@ -404,7 +353,6 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
       }
   };
 
-
   const handleQuizComplete = useCallback((results: Omit<QuizResult, 'date'>) => {
     if(!user) return;
     const newQuizResults: QuizResult = {
@@ -413,8 +361,10 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
     };
     
     const updatedStory = { ...story, quizResults: newQuizResults };
-    updateStory(user.uid, updatedStory);
-  }, [story, user]);
+    if (isStorySaved) {
+        updateStory(user.uid, updatedStory);
+    }
+  }, [story, user, isStorySaved]);
 
   return (
     <div className="flex flex-col gap-4 w-full h-full animate-fade-in">
@@ -451,6 +401,12 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
                 <div className="my-4 p-4 bg-red-100 rounded-lg text-center text-red-700 font-semibold">
                     Microphone access is needed. Please allow it in your browser settings.
                 </div>
+            )}
+
+            {isPreparingFullStory && (
+              <div className="my-4 p-4 bg-blue-100 rounded-lg text-center">
+                <p className="text-xl font-semibold text-blue-700 animate-pulse">{fullStoryLoadingMessage}</p>
+              </div>
             )}
             
             {phonemeData && readingMode === ReadingMode.PHONEME && (
@@ -499,10 +455,14 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
 
                 {readingMode !== ReadingMode.PHONEME && readingMode !== ReadingMode.QUIZ && (
                   <button onClick={handleReadFullStory}
-                          disabled={isSpeaking}
+                          disabled={isSpeaking || isPreparingFullStory}
                           className="flex items-center gap-2 px-4 py-2 rounded-full font-semibold transition-all bg-purple-500 text-white hover:bg-purple-600 disabled:bg-gray-400">
-                      <Icon name="play" className="w-5 h-5" />
-                      <span>Read Full Story</span>
+                      {isPreparingFullStory ? (
+                        <div className="w-5 h-5 border-2 border-t-transparent border-white rounded-full animate-spin"></div>
+                      ) : (
+                        <Icon name="play" className="w-5 h-5" />
+                      )}
+                      <span>{isPreparingFullStory ? 'Loading...' : 'Read Full Story'}</span>
                   </button>
                 )}
             </div>

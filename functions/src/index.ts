@@ -295,7 +295,10 @@ export const googleCloudTTS = onRequest(
         const [ttsResponse] = await textToSpeechClient.synthesizeSpeech({
           input: { ssml },
           voice: googleVoice,
-          audioConfig: { audioEncoding: 'MP3' },
+          audioConfig: {
+            audioEncoding: "LINEAR16",
+            sampleRateHertz: 24000,
+          },
         });
 
         if (ttsResponse.audioContent) {
@@ -357,8 +360,14 @@ export const transcribeAudio = onRequest(
   },
 );
 
+// Helper to safely parse JSON that might be wrapped in markdown
+const cleanAndParseJson = (text: string) => {
+  const cleanedText = text.replace(/^```json\s*/, "").replace(/```$/, "");
+  return JSON.parse(cleanedText);
+};
+
 export const getTimedTranscript = onRequest(
-    { secrets: ["API_KEY"], maxInstances: 10, region: "us-central1" },
+    { secrets: ["API_KEY"], maxInstances: 10, region: "us-central1", memory: "512MiB" },
     async (request, response) => {
       corsHandler(request, response, async () => {
         // FIX: The data is nested inside request.body.data
@@ -395,7 +404,7 @@ Example JSON output:
           const apiRequest = {
             contents: [{
               parts: [
-                { inline_data: { mime_type: 'audio/wav', data: audio } },
+                { inline_data: { mime_type: 'audio/l16; rate=24000;', data: audio } },
                 { text: prompt }
               ]
             }],
@@ -417,15 +426,18 @@ Example JSON output:
             throw new Error(`Gemini API failed with status ${apiResponse.status}`);
           }
   
-          const data = await apiResponse.json();
-          const transcript = data.candidates?.[0]?.content?.parts?.[0]?.text;
+           const data = await apiResponse.json();
+          const transcriptText = data.candidates?.[0]?.content?.parts?.[0]?.text;
   
-          if (!transcript) {
+          if (!transcriptText) {
             throw new Error("Could not get transcript for the audio.");
           }
   
+          // Use the helper function to clean and parse the response
+          const transcript = cleanAndParseJson(transcriptText);
+
           // FIX: The response needs to be nested in a 'data' object
-          response.status(200).send({ data: { transcript: JSON.parse(transcript) } });
+          response.status(200).send({ data: { transcript } });
         } catch (error) {
           logger.error("Error in getTimedTranscript:", error);
           response.status(500).send({ error: "Could not get transcript for the audio." });

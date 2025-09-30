@@ -28,6 +28,12 @@ const withTimeout = <T>(promise: Promise<T>, ms = 10000): Promise<T> => {
   });
 };
 
+// Helper to safely parse JSON that might be wrapped in markdown
+const cleanAndParseJson = (text: string) => {
+  const cleanedText = text.replace(/^```json\s*/, "").replace(/```$/, "");
+  return JSON.parse(cleanedText);
+};
+
 // Create callable function references
 const generateStoryAndIllustrationCallable = httpsCallable(functions, 'generateStoryAndIllustration');
 const getPhonemesForWordCallable = httpsCallable(functions, 'getPhonemesForWord');

@@ -56,6 +56,7 @@ export const useTextToSpeech = (): TextToSpeechHook => {
       if (!audioContent) throw new Error("No audio content received.");
 
       const audioBuffer = await Tone.context.decodeAudioData(base64ToArrayBuffer(audioContent));
+      console.log(`DEBUG: Decoded audio buffer duration: ${audioBuffer.duration.toFixed(2)} seconds`);
 
       return new Promise((resolve) => {
           const player = new Tone.Player(audioBuffer).toDestination();
