@@ -601,37 +601,35 @@ export const generateLocationStoryIdeas = onRequest(
     { secrets: ["API_KEY"], maxInstances: 10, region: "us-central1" },
     async (request, response: ExpressResponse) => {
         corsHandler(request, response, async () => {
-            const { latitude, longitude } = request.body.data;
-            if (!latitude || !longitude) {
-                response.status(400).send({ error: "Latitude and longitude are required." });
-                return;
+            const { latitude, longitude, location: locationInput } = request.body.data;
+            const GEMINI_API_KEY = process.env.API_KEY;
+
+            if ((latitude == null || longitude == null) && !locationInput) {
+                return response.status(400).send({ error: "Either lat/lng or a location string is required." });
             }
 
-            const GEMINI_API_KEY = process.env.API_KEY;
-            if (!GEMINI_API_KEY) {
-                logger.error("API_KEY not configured in environment.");
-                response.status(500).send({ error: "Internal Server Error: API key not found." });
-                return;
-            }
+            let locationToUse = locationInput;
 
             try {
-                // Reverse geocode using Google Geocoding API
-                const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${GEMINI_API_KEY}`;
-                const geocodeResponse = await fetch(geocodeUrl);
-                if (!geocodeResponse.ok) {
-                    throw new Error('Failed to fetch location from Google Geocoding API.');
-                }
-                const geocodeData = await geocodeResponse.json();
+                if (!locationToUse) {
+                    // Reverse geocode using Google Geocoding API
+                    const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${GEMINI_API_KEY}`;
+                    const geocodeResponse = await fetch(geocodeUrl);
+                    if (!geocodeResponse.ok) {
+                        throw new Error('Failed to fetch location from Google Geocoding API.');
+                    }
+                    const geocodeData = await geocodeResponse.json();
 
-                if (!geocodeData.results || geocodeData.results.length === 0) {
-                     throw new Error('No location found for the given coordinates.');
+                    if (!geocodeData.results || geocodeData.results.length === 0) {
+                         throw new Error('No location found for the given coordinates.');
+                    }
+                    
+                    locationToUse = geocodeData.results[0].formatted_address;
                 }
-                
-                const location = geocodeData.results[0].formatted_address;
 
                 const systemInstruction = getLocationStoryIdeasSystemInstruction();
                 const modelUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
-                const prompt = `Location: ${location}`;
+                const prompt = `Location: ${locationToUse}`;
 
                 const apiRequest = {
                     contents: [{ parts: [{ text: prompt }] }],
@@ -656,10 +654,48 @@ export const generateLocationStoryIdeas = onRequest(
                 const data = await apiResponse.json();
                 const ideas = JSON.parse(data.candidates[0].content.parts[0].text);
 
-                response.status(200).send({ data: { ideas, location } });
+                response.status(200).send({ data: { ideas, location: locationToUse } });
             } catch (error) {
                 logger.error("Error in generateLocationStoryIdeas:", error);
                 response.status(500).send({ error: "Could not generate location-based story ideas." });
+            }
+        });
+    }
+);
+
+export const getPlaceAutocomplete = onRequest(
+    { secrets: ["API_KEY"], maxInstances: 10, region: "us-central1" },
+    async (request, response: ExpressResponse) => {
+        corsHandler(request, response, async () => {
+            const { input } = request.body.data;
+            if (!input) {
+                response.status(400).send({ error: "Input is required." });
+                return;
+            }
+
+            const PLACES_API_KEY = process.env.API_KEY;
+            if (!PLACES_API_KEY) {
+                logger.error("PLACES_API_KEY not configured in environment.");
+                response.status(500).send({ error: "Internal Server Error: API key not found." });
+                return;
+            }
+
+            try {
+                const autocompleteUrl = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(input)}&key=${PLACES_API_KEY}`;
+                const autocompleteResponse = await fetch(autocompleteUrl);
+
+                if (!autocompleteResponse.ok) {
+                    const errorText = await autocompleteResponse.text();
+                    logger.error("Error from Google Places API:", errorText);
+                    throw new Error(`Google Places API failed with status ${autocompleteResponse.status}`);
+                }
+
+                const autocompleteData = await autocompleteResponse.json();
+                response.status(200).send({ data: autocompleteData });
+
+            } catch (error) {
+                logger.error("Error in getPlaceAutocomplete:", error);
+                response.status(500).send({ error: "Could not get place autocomplete suggestions." });
             }
         });
     }

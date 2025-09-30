@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Spinner from './Spinner';
 import Icon from './Icon';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
-import { transcribeAudio, generateStoryIdeas, generateLocationStoryIdeas } from '../services/geminiService';
+import { transcribeAudio, generateStoryIdeas, generateLocationStoryIdeas, getPlaceAutocomplete } from '../services/geminiService';
 import SavedStoriesModal from './SavedStoriesModal';
 import type { Story } from '../types';
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
@@ -47,6 +47,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
   const [isLoadingLocationIdeas, setIsLoadingLocationIdeas] = useState(false);
   const [locationInput, setLocationInput] = useState('');
   const [locationError, setLocationError] = useState<string | null>(null);
+  const [locationSuggestions, setLocationSuggestions] = useState<any[]>([]);
+  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const isDisallowedUserAgent = () => {
     const userAgent = window.navigator.userAgent.toLowerCase();
@@ -221,7 +223,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
         (position) => {
           setUserLocation(position.coords);
           setLocationError(null);
-          handleGenerateLocationIdeas(position.coords);
+          handleGenerateLocationIdeas({ coords: position.coords });
         },
         (error) => {
           console.error("Error getting user location:", error.message);
@@ -233,42 +235,57 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
     }
   };
   
-  const handleGenerateLocationIdeas = async (coords?: GeolocationCoordinates) => {
-      const coordinates = coords || userLocation;
-      if (!coordinates) {
-        if (locationInput) {
-           // User has typed a location manually
-           setIsLoadingLocationIdeas(true);
-           setLocationStoryIdeas([]);
-           setError(null);
-           try {
-               const { ideas, location } = await generateLocationStoryIdeas(0, 0); // Coords are not used, locationInput is
-               setLocationStoryIdeas(ideas);
-               setLocationInput(location);
-           } catch (e) {
-                console.error("Failed to generate location story ideas from input", e);
-                setError("I couldn't think of any ideas for that location. Please try another one.");
-           } finally {
-                setIsLoadingLocationIdeas(false);
-           }
-           return;
+  const handleGenerateLocationIdeas = async ({ coords, location }: { coords?: GeolocationCoordinates; location?: string }) => {
+    const coordinates = coords || userLocation;
+    const locationString = location || locationInput;
+
+    if (!coordinates && !locationString) {
+      setError("Please provide a location.");
+      return;
+    }
+
+    setIsLoadingLocationIdeas(true);
+    setLocationStoryIdeas([]);
+    setError(null);
+    try {
+      const params = locationString ? { location: locationString } : { latitude: coordinates!.latitude, longitude: coordinates!.longitude };
+      const { ideas, location: fetchedLocation } = await generateLocationStoryIdeas(params);
+      setLocationStoryIdeas(ideas);
+      setLocationInput(fetchedLocation);
+    } catch (e) {
+      console.error("Failed to generate location story ideas", e);
+      setError("I couldn't think of any ideas for that location. Please try another one.");
+    } finally {
+      setIsLoadingLocationIdeas(false);
+    }
+  };
+
+  const handleLocationInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setLocationInput(value);
+
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current);
+    }
+
+    if (value.length > 2) {
+      debounceTimeoutRef.current = setTimeout(async () => {
+        try {
+          const { predictions } = await getPlaceAutocomplete(value);
+          setLocationSuggestions(predictions || []);
+        } catch (error) {
+          console.error("Error fetching place suggestions:", error);
         }
-          setError("Could not get your location. Please try again.");
-          return;
-      }
-      setIsLoadingLocationIdeas(true);
-      setLocationStoryIdeas([]);
-      setError(null);
-      try {
-          const { ideas, location } = await generateLocationStoryIdeas(coordinates.latitude, coordinates.longitude);
-          setLocationStoryIdeas(ideas);
-          setLocationInput(location);
-      } catch (e) {
-          console.error("Failed to generate location story ideas", e);
-          setError("I couldn't think of any ideas for that location. Please try another one.");
-      } finally {
-          setIsLoadingLocationIdeas(false);
-      }
+      }, 300);
+    } else {
+      setLocationSuggestions([]);
+    }
+  };
+
+  const handleSuggestionClick = (suggestion: any) => {
+    setLocationInput(suggestion.description);
+    setLocationSuggestions([]);
+    handleGenerateLocationIdeas({ location: suggestion.description });
   };
   
   const isListening = recorderState.status === 'recording';
@@ -384,7 +401,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
                 <Icon name="idea" className="w-12 h-12" />
             </button>
             {userLocation && (
-              <button onClick={handleGenerateLocationIdeas} disabled={anythingLoading || isLoadingLocationIdeas} className="flex items-center justify-center w-16 h-16 bg-teal-400 text-white rounded-full hover:bg-teal-500 transition-transform hover:scale-110 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
+              <button onClick={() => handleGenerateLocationIdeas({})} disabled={anythingLoading || isLoadingLocationIdeas} className="flex items-center justify-center w-16 h-16 bg-teal-400 text-white rounded-full hover:bg-teal-500 transition-transform hover:scale-110 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
                   <Icon name="location" className="w-10 h-10" />
               </button>
             )}
@@ -440,17 +457,30 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
                         </li>
                     ))}
                 </ul>
-                <div className="mt-4">
-                    <input 
-                        type="text"
-                        value={locationInput}
-                        onChange={(e) => setLocationInput(e.target.value)}
-                        placeholder="Enter a location"
-                        className="w-full p-2 border-2 border-teal-200 rounded-lg"
-                    />
-                </div>
             </div>
         )}
+        <div className="mt-4 w-full max-w-lg relative">
+            <input 
+                type="text"
+                value={locationInput}
+                onChange={handleLocationInputChange}
+                placeholder="Or type a location..."
+                className="w-full p-2 border-2 border-gray-300 rounded-lg"
+            />
+            {locationSuggestions.length > 0 && (
+              <ul className="absolute z-10 w-full bg-white border border-gray-300 rounded-lg mt-1 max-h-60 overflow-y-auto">
+                {locationSuggestions.map((suggestion) => (
+                  <li
+                    key={suggestion.place_id}
+                    onClick={() => handleSuggestionClick(suggestion)}
+                    className="p-2 cursor-pointer hover:bg-gray-200"
+                  >
+                    {suggestion.description}
+                  </li>
+                ))}
+              </ul>
+            )}
+        </div>
         
         <div className="mt-8 flex gap-4">
           {!user ? (

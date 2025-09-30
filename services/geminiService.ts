@@ -98,7 +98,16 @@ export const generateStoryIdeas = async (): Promise<StoryIdeasResponse> => {
     return result.data as StoryIdeasResponse;
 };
 
-export const generateLocationStoryIdeas = async (location: string): Promise<LocationStoryIdeasResponse> => {
-    const result = await generateLocationStoryIdeasCallable({ location });
+export const generateLocationStoryIdeas = async (params: { latitude?: number; longitude?: number; location?: string }): Promise<LocationStoryIdeasResponse> => {
+    const result = await generateLocationStoryIdeasCallable(params);
     return result.data as LocationStoryIdeasResponse;
+};
+
+const getPlaceAutocompleteCallable = httpsCallable(functions, 'getPlaceAutocomplete');
+
+type PlaceAutocompleteResponse = { predictions: any[], status: string };
+
+export const getPlaceAutocomplete = async (input: string): Promise<PlaceAutocompleteResponse> => {
+    const result = await getPlaceAutocompleteCallable({ input });
+    return result.data as PlaceAutocompleteResponse;
 };
