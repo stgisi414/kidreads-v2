@@ -1,8 +1,7 @@
 // functions/src/index.ts
 
-import { onRequest, Request as FunctionsRequest } from "firebase-functions/v2/https";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { onDocumentDeleted } from "firebase-functions/v2/firestore";
-import { Response as ExpressResponse } from "express";
 import * as logger from "firebase-functions/logger";
 import { SpeechClient } from "@google-cloud/speech";
 import { TextToSpeechClient } from "@google-cloud/text-to-speech";
@@ -70,18 +69,16 @@ const getLocationStoryIdeasSystemInstruction = (): string => {
       }`;
 };
 
-export const generateStoryAndIllustration = onRequest(
+export const generateStoryAndIllustration = onCall(
   {
     secrets: ["API_KEY"],
     maxInstances: 10,
     region: "us-central1",
-    cors: [/kidreads-v2\.web\.app$/, /localhost:\d+$/, /kidreads\.app$/],
   },
-  async (request, response: ExpressResponse) => {
-    const { topic, storyLength } = request.body.data;
+  async (request) => {
+    const { topic, storyLength } = request.data;
     if (!topic) {
-        response.status(400).send({ error: "Topic is required." });
-        return;
+        throw new HttpsError("invalid-argument", "Topic is required.");
     }
 
     const systemInstruction = getStoryAndPromptSystemInstruction(storyLength);
@@ -89,10 +86,9 @@ export const generateStoryAndIllustration = onRequest(
     const GEMINI_API_KEY = process.env.API_KEY;
     if (!GEMINI_API_KEY) {
         logger.error("API_KEY not configured in environment.");
-        response.status(500).send({ error: "Internal Server Error: API key not found." });
-        return;
+        throw new HttpsError("internal", "Internal Server Error: API key not found.");
     }
-      
+
     try {
       const modelUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
       const apiRequest = {
@@ -114,7 +110,7 @@ export const generateStoryAndIllustration = onRequest(
       if (!apiResponse.ok) {
         const errorText = await apiResponse.text();
         logger.error("Error from Gemini API:", errorText);
-        throw new Error(`Gemini API failed with status ${apiResponse.status}`);
+        throw new HttpsError("internal", `Gemini API failed with status ${apiResponse.status}`);
       }
 
       const data = await apiResponse.json();
@@ -124,10 +120,9 @@ export const generateStoryAndIllustration = onRequest(
         data.candidates.length === 0
       ) {
         logger.warn("Story and prompt generation was blocked for safety reasons.", { topic });
-        response.status(400).send({ error: "That topic is not allowed. Please choose a friendlier topic for a children's story." });
-        return;
+        throw new HttpsError("invalid-argument", "That topic is not allowed. Please choose a friendlier topic for a children's story.");
       }
-      
+
       const responseJson = JSON.parse(data.candidates[0].content.parts[0].text)
       const title = responseJson.title;
       const storyText = responseJson.story;
@@ -137,7 +132,7 @@ export const generateStoryAndIllustration = onRequest(
 
       if (!title || !storyText || !imagePrompt || !quiz) {
         logger.error("Missing title, story, image prompt, or quiz in Gemini response", data);
-        throw new Error("Failed to generate complete story data from AI.");
+        throw new HttpsError("internal", "Failed to generate complete story data from AI.");
       }
 
 
@@ -163,16 +158,16 @@ export const generateStoryAndIllustration = onRequest(
       if (!imageApiResponse.ok) {
         const errorText = await imageApiResponse.text();
         logger.error("Error from Imagen API:", { status: imageApiResponse.status, text: errorText });
-        throw new Error(`Imagen API failed with status ${imageApiResponse.status}`);
+        throw new HttpsError("internal", `Imagen API failed with status ${imageApiResponse.status}`);
       }
 
       const imageData = await imageApiResponse.json();
       const base64ImageBytes = imageData.predictions?.[0]?.bytesBase64Encoded;
       if (!base64ImageBytes) {
         logger.error("No image data found in Imagen response", imageData);
-        throw new Error("Failed to generate illustration.");
+        throw new HttpsError("internal", "Failed to generate illustration.");
       }
-      
+
       const imageBuffer = Buffer.from(base64ImageBytes, 'base64');
       const fileName = `illustrations/${uuidv4()}.jpeg`;
       const file = bucket.file(fileName);
@@ -182,44 +177,41 @@ export const generateStoryAndIllustration = onRequest(
           contentType: 'image/jpeg',
         },
       });
-      
+
       await file.makePublic();
       const illustrationUrl = file.publicUrl();
 
-      response.status(200).send({ data: { title, text: storyText, illustration: illustrationUrl, quiz } });
+      return { title, text: storyText, illustration: illustrationUrl, quiz };
 
     } catch (error) {
       logger.error("Error in generateStoryAndIllustration:", error);
-      response.status(500).send({ error: "Could not generate story and illustration." });
+      throw new HttpsError("internal", "Could not generate story and illustration.");
     }
   },
 );
 
-export const getPhonemesForWord = onRequest(
+export const getPhonemesForWord = onCall(
   {
     secrets: ["API_KEY"],
     maxInstances: 10,
     region: "us-central1",
-    cors: [/kidreads-v2\.web\.app$/, /localhost:\d+$/, /kidreads\.app$/],
   },
-  async (request, response: ExpressResponse) => {
-    const { word } = request.body.data;
+  async (request) => {
+    const { word } = request.data;
     if (!word) {
-      response.status(400).send({ error: "Word is required." });
-      return;
+      throw new HttpsError("invalid-argument", "Word is required.");
     }
 
     const GEMINI_API_KEY = process.env.API_KEY;
     if (!GEMINI_API_KEY) {
       logger.error("API_KEY not configured in environment.");
-      response.status(500).send({ error: "Internal Server Error: API key not found." });
-      return;
+      throw new HttpsError("internal", "Internal Server Error: API key not found.");
     }
 
     try {
       const cleanWord = word.replace(/[.,!?]/g, "");
       const modelUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
-      
+
       const prompt = `
         Analyze the word: "${cleanWord}".
         Your response MUST be a valid JSON object.
@@ -235,8 +227,8 @@ export const getPhonemesForWord = onRequest(
 
       const apiRequest = {
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { 
-          temperature: 0, 
+        generationConfig: {
+          temperature: 0,
           maxOutputTokens: 1024,
           responseMimeType: "application/json",
         },
@@ -251,47 +243,40 @@ export const getPhonemesForWord = onRequest(
       if (!apiResponse.ok) {
         const errorText = await apiResponse.text();
         logger.error("Error from Gemini phoneme API:", errorText);
-        throw new Error(`Gemini phoneme API failed with status ${apiResponse.status}`);
+        throw new HttpsError("internal", `Gemini phoneme API failed with status ${apiResponse.status}`);
       }
 
       const data = await apiResponse.json();
       const responseJsonText = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
       if (!responseJsonText) {
-        throw new Error("Could not get phonemes for the word.");
+        throw new HttpsError("internal", "Could not get phonemes for the word.");
       }
-      
+
       const responseObject = JSON.parse(responseJsonText);
-      response.status(200).send({ data: responseObject });
+      return responseObject;
 
     } catch (error) {
       logger.error("Error in getPhonemesForWord:", error);
-      response.status(500).send({ error: "Could not get phonemes for the word." });
+      throw new HttpsError("internal", "Could not get phonemes for the word.");
     }
   },
 );
 
-export const googleCloudTTS = onRequest(
+export const googleCloudTTS = onCall(
   {
     region: "us-central1",
-    cors: [/kidreads-v2\.web\.app$/, /localhost:\d+$/, /kidreads\.app$/],
   },
-  async (request: FunctionsRequest, response: ExpressResponse) => {
-    if (request.method !== "POST") {
-      response.status(405).send("Method Not Allowed");
-      return;
-    }
-
-    const { text, voice, isWord, speakingRate } = request.body.data;
+  async (request) => {
+    const { text, voice, isWord, speakingRate } = request.data;
     if (!text) {
-      response.status(400).send("Bad Request: Missing text");
-      return;
+      throw new HttpsError("invalid-argument", "Bad Request: Missing text");
     }
 
     const googleVoice = voice === 'Leda'
       ? { languageCode: 'en-US', name: 'en-US-Studio-O' }
       : { languageCode: 'en-US', name: 'en-US-Studio-M' };
-    
+
     const content = isWord ? `<break time="250ms"/>${text}` : text;
     const ssml = `<speak><prosody rate="${speakingRate || 1.0}">${content}</prosody></speak>`;
 
@@ -307,29 +292,27 @@ export const googleCloudTTS = onRequest(
 
       if (ttsResponse.audioContent) {
         const audioContent = Buffer.from(ttsResponse.audioContent).toString('base64');
-        response.status(200).send({ data: { audioContent } });
+        return { audioContent };
       } else {
         throw new Error("No audio data received from Google Cloud TTS API.");
       }
     } catch (error: any) {
       logger.error(`Error generating Google Cloud TTS for text "${text}":`, error.message);
-      response.status(500).send("Failed to generate audio.");
+      throw new HttpsError("internal", "Failed to generate audio.");
     }
   },
 );
 
-export const transcribeAudio = onRequest(
+export const transcribeAudio = onCall(
   {
     maxInstances: 10,
     region: "us-central1",
-    cors: [/kidreads-v2\.web\.app$/, /localhost:\d+$/, /kidreads\.app$/],
   },
-  async (request, response) => {
+  async (request) => {
     try {
-      const audioBytes = request.body.data.audio;
+      const audioBytes = request.data.audio;
       if (!audioBytes) {
-        response.status(400).send("No audio data found in request.");
-        return;
+        throw new HttpsError("invalid-argument", "No audio data found in request.");
       }
 
       const audio = { content: audioBytes };
@@ -345,11 +328,11 @@ export const transcribeAudio = onRequest(
       const transcription = speechResponse.results
         ?.map((result: any) => result.alternatives?.[0].transcript)
         .join("\n");
-      
-      response.status(200).send({ data: { transcription } });
+
+      return { transcription };
     } catch (error) {
       logger.error("Error in transcribeAudio:", error);
-      response.status(500).send("Error transcribing audio.");
+      throw new HttpsError("internal", "Error transcribing audio.");
     }
   },
 );
@@ -359,26 +342,23 @@ const cleanAndParseJson = (text: string) => {
   return JSON.parse(cleanedText);
 };
 
-export const getTimedTranscript = onRequest(
+export const getTimedTranscript = onCall(
   {
     secrets: ["API_KEY"],
     maxInstances: 10,
     region: "us-central1",
     memory: "512MiB",
-    cors: [/kidreads-v2\.web\.app$/, /localhost:\d+$/, /kidreads\.app$/],
   },
-  async (request, response) => {
-    const { audio, text, speakingRate, duration } = request.body.data;
+  async (request) => {
+    const { audio, text, speakingRate, duration } = request.data;
     if (!audio || !text) {
-      response.status(400).send({ error: "Audio data and story text are required." });
-      return;
+      throw new HttpsError("invalid-argument", "Audio data and story text are required.");
     }
 
     const GEMINI_API_KEY = process.env.API_KEY;
     if (!GEMINI_API_KEY) {
       logger.error("API_KEY not configured in environment.");
-      response.status(500).send({ error: "Internal Server Error: API key not found." });
-      return;
+      throw new HttpsError("internal", "Internal Server Error: API key not found.");
     }
 
     try {
@@ -419,44 +399,41 @@ Example JSON output:
       if (!apiResponse.ok) {
         const errorText = await apiResponse.text();
         logger.error("Error from Gemini API:", errorText);
-        throw new Error(`Gemini API failed with status ${apiResponse.status}`);
+        throw new HttpsError("internal", `Gemini API failed with status ${apiResponse.status}`);
       }
 
        const data = await apiResponse.json();
       const transcriptText = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
       if (!transcriptText) {
-        throw new Error("Could not get transcript for the audio.");
+        throw new HttpsError("internal", "Could not get transcript for the audio.");
       }
 
       const transcript = cleanAndParseJson(transcriptText);
-      response.status(200).send({ data: { transcript } });
+      return { transcript };
     } catch (error) {
       logger.error("Error in getTimedTranscript:", error);
-      response.status(500).send({ error: "Could not get transcript for the audio." });
+      throw new HttpsError("internal", "Could not get transcript for the audio.");
     }
   }
 );
 
-export const checkWordMatch = onRequest(
+export const checkWordMatch = onCall(
   {
     secrets: ["API_KEY"],
     maxInstances: 10,
     region: "us-central1",
-    cors: [/kidreads-v2\.web\.app$/, /localhost:\d+$/, /kidreads\.app$/],
   },
-  async (request, response) => {
-    const { transcribedWord, expectedWord } = request.body.data;
+  async (request) => {
+    const { transcribedWord, expectedWord } = request.data;
     if (!transcribedWord || !expectedWord) {
-        response.status(400).send({ error: "Transcribed word and expected word are required." });
-        return;
+        throw new HttpsError("invalid-argument", "Transcribed word and expected word are required.");
     }
 
     const GEMINI_API_KEY = process.env.API_KEY;
     if (!GEMINI_API_KEY) {
         logger.error("API_KEY not configured in environment.");
-        response.status(500).send({ error: "Internal Server Error: API key not found." });
-        return;
+        throw new HttpsError("internal", "Internal Server Error: API key not found.");
     }
 
     try {
@@ -476,17 +453,17 @@ export const checkWordMatch = onRequest(
         if (!apiResponse.ok) {
             const errorText = await apiResponse.text();
             logger.error("Error from Gemini API:", errorText);
-            throw new Error(`Gemini API failed with status ${apiResponse.status}`);
+            throw new HttpsError("internal", `Gemini API failed with status ${apiResponse.status}`);
         }
 
         const data = await apiResponse.json();
         const matchText = data.candidates?.[0]?.content?.parts?.[0]?.text.trim().toLowerCase();
 
-        response.status(200).send({ data: { isMatch: matchText === 'true' } });
+        return { isMatch: matchText === 'true' };
 
     } catch (error) {
         logger.error("Error in checkWordMatch:", error);
-        response.status(500).send({ error: "Could not check word match." });
+        throw new HttpsError("internal", "Could not check word match.");
     }
   }
 );
@@ -517,19 +494,17 @@ export const deleteStoryImage = onDocumentDeleted("users/{userId}/stories/{story
     }
 });
 
-export const generateStoryIdeas = onRequest(
+export const generateStoryIdeas = onCall(
   {
     secrets: ["API_KEY"],
     maxInstances: 10,
     region: "us-central1",
-    cors: [/kidreads-v2\.web\.app$/, /localhost:\d+$/, /kidreads\.app$/],
   },
-  async (request, response: ExpressResponse) => {
+  async (request) => {
     const GEMINI_API_KEY = process.env.API_KEY;
     if (!GEMINI_API_KEY) {
         logger.error("API_KEY not configured in environment.");
-        response.status(500).send({ error: "Internal Server Error: API key not found." });
-        return;
+        throw new HttpsError("internal", "Internal Server Error: API key not found.");
     }
 
     try {
@@ -560,34 +535,32 @@ export const generateStoryIdeas = onRequest(
         if (!apiResponse.ok) {
             const errorText = await apiResponse.text();
             logger.error("Error from Gemini API:", errorText);
-            throw new Error(`Gemini API failed with status ${apiResponse.status}`);
+            throw new HttpsError("internal", `Gemini API failed with status ${apiResponse.status}`);
         }
 
         const data = await apiResponse.json();
         const ideas = JSON.parse(data.candidates[0].content.parts[0].text);
 
-        response.status(200).send({ data: ideas });
+        return ideas;
     } catch (error) {
         logger.error("Error in generateStoryIdeas:", error);
-        response.status(500).send({ error: "Could not generate story ideas." });
+        throw new HttpsError("internal", "Could not generate story ideas.");
     }
   }
 );
 
-export const generateLocationStoryIdeas = onRequest(
+export const generateLocationStoryIdeas = onCall(
     {
         secrets: ["API_KEY"],
         maxInstances: 10,
         region: "us-central1",
-        cors: [/kidreads-v2\.web\.app$/, /localhost:\d+$/, /kidreads\.app$/],
     },
-    async (request, response: ExpressResponse) => {
-        const { latitude, longitude, location: locationInput } = request.body.data;
+    async (request) => {
+        const { latitude, longitude, location: locationInput } = request.data;
         const GEMINI_API_KEY = process.env.API_KEY;
 
         if ((latitude == null || longitude == null) && !locationInput) {
-            response.status(400).send({ error: "Either lat/lng or a location string is required." });
-            return;
+            throw new HttpsError("invalid-argument", "Either lat/lng or a location string is required.");
         }
 
         let locationToUse = locationInput;
@@ -597,12 +570,12 @@ export const generateLocationStoryIdeas = onRequest(
                 const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${GEMINI_API_KEY}`;
                 const geocodeResponse = await fetch(geocodeUrl);
                 if (!geocodeResponse.ok) {
-                    throw new Error('Failed to fetch location from Google Geocoding API.');
+                    throw new HttpsError("internal", 'Failed to fetch location from Google Geocoding API.');
                 }
                 const geocodeData = await geocodeResponse.json();
 
                 if (!geocodeData.results || geocodeData.results.length === 0) {
-                    throw new Error('No location found for the given coordinates.');
+                    throw new HttpsError("not-found", 'No location found for the given coordinates.');
                 }
 
                 const addressComponents = geocodeData.results[0].address_components;
@@ -634,57 +607,67 @@ export const generateLocationStoryIdeas = onRequest(
             if (!apiResponse.ok) {
                 const errorText = await apiResponse.text();
                 logger.error("Error from Gemini API for location ideas:", errorText);
-                throw new Error(`Gemini API failed with status ${apiResponse.status}`);
+                throw new HttpsError("internal", `Gemini API failed with status ${apiResponse.status}`);
             }
 
             const data = await apiResponse.json();
             const ideas = JSON.parse(data.candidates[0].content.parts[0].text);
 
-            response.status(200).send({ data: { ...ideas, location: locationToUse } });
+            return { ...ideas, location: locationToUse };
         } catch (error) {
             logger.error("Error in generateLocationStoryIdeas:", error);
-            response.status(500).send({ error: "Could not generate location-based story ideas." });
+            throw new HttpsError("internal", "Could not generate location-based story ideas.");
         }
     }
 );
 
-export const getPlaceAutocomplete = onRequest(
+export const getPlaceAutocomplete = onCall(
   {
     secrets: ["API_KEY"],
     maxInstances: 10,
     region: "us-central1",
-    cors: [/kidreads-v2\.web\.app$/, /localhost:\d+$/, /kidreads\.app$/],
   },
-  async (request, response: ExpressResponse) => {
-    const { input } = request.body.data;
+  async (request) => {
+    const { input } = request.data;
     if (!input) {
-        response.status(400).send({ error: "Input is required." });
-        return;
+      throw new HttpsError("invalid-argument", "Input is required.");
     }
 
     const PLACES_API_KEY = process.env.API_KEY;
     if (!PLACES_API_KEY) {
-        logger.error("PLACES_API_KEY not configured in environment.");
-        response.status(500).send({ error: "Internal Server Error: API key not found." });
-        return;
+        logger.error("API_KEY not configured in environment.");
+        throw new HttpsError("internal", "Internal Server Error: API key not found.");
     }
 
     try {
-        const autocompleteUrl = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(input)}&types=(cities)&key=${PLACES_API_KEY}`;
-        const autocompleteResponse = await fetch(autocompleteUrl);
+        const autocompleteUrl = 'https://places.googleapis.com/v1/places:autocomplete';
+        const apiRequest = {
+          input: input,
+          includedPrimaryTypes: ["locality", "administrative_area_level_3", "country"],
+        };
+
+        const autocompleteResponse = await fetch(autocompleteUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Goog-Api-Key': PLACES_API_KEY,
+          },
+          body: JSON.stringify(apiRequest),
+        });
+
 
         if (!autocompleteResponse.ok) {
             const errorText = await autocompleteResponse.text();
             logger.error("Error from Google Places API:", errorText);
-            throw new Error(`Google Places API failed with status ${autocompleteResponse.status}`);
+            throw new HttpsError("internal", `Google Places API failed with status ${autocompleteResponse.status}`);
         }
 
         const autocompleteData = await autocompleteResponse.json();
-        response.status(200).send({ data: autocompleteData });
+        return autocompleteData;
 
     } catch (error) {
         logger.error("Error in getPlaceAutocomplete:", error);
-        response.status(500).send({ error: "Could not get place autocomplete suggestions." });
+        throw new HttpsError("internal", "Could not get place autocomplete suggestions.");
     }
   }
 );

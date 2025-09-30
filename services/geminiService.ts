@@ -109,5 +109,6 @@ type PlaceAutocompleteResponse = { predictions: any[], status: string };
 
 export const getPlaceAutocomplete = async (input: string): Promise<PlaceAutocompleteResponse> => {
     const result = await getPlaceAutocompleteCallable({ input });
+    console.log('Raw autocomplete result from callable:', result);
     return result.data as PlaceAutocompleteResponse;
 };

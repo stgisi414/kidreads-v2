@@ -48,6 +48,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
   const [locationInput, setLocationInput] = useState('');
   const [locationError, setLocationError] = useState<string | null>(null);
   const [locationSuggestions, setLocationSuggestions] = useState<any[]>([]);
+  const [isTranscribingLocation, setIsTranscribingLocation] = useState(false);
+  const [recordingFor, setRecordingFor] = useState<'topic' | 'location' | null>(null);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const isDisallowedUserAgent = () => {
@@ -157,9 +159,12 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
       await Tone.start();
     }
 
-    if (recorderState.status === 'recording') {
-        setIsTranscribing(true);
+    if (recordingFor && recordingFor !== 'topic') return;
+
+    if (recordingFor === 'topic') {
         const audioBase64 = await stopRecording();
+        setRecordingFor(null);
+        setIsTranscribing(true);
         if (audioBase64) {
             try {
                 const { transcription } = await transcribeAudio(audioBase64);
@@ -185,6 +190,46 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
         }
     } else {
         await startRecording();
+        setRecordingFor('topic');
+    }
+  };
+
+  const handleLocationMicClick = async () => {
+    if (Tone.context.state !== 'running') {
+      await Tone.start();
+    }
+
+    if (recordingFor && recordingFor !== 'location') return;
+
+    if (recordingFor === 'location') {
+      const audioBase64 = await stopRecording();
+      setRecordingFor(null);
+      setIsTranscribingLocation(true);
+      if (audioBase64) {
+        try {
+          const { transcription } = await transcribeAudio(audioBase64);
+          if (transcription && transcription.trim()) {
+            const newLocation = transcription.trim();
+            setLocationInput(newLocation);
+            setLocationSuggestions([]); // Clear old suggestions
+            handleGenerateLocationIdeas({ location: newLocation });
+          } else {
+            setLocationError("I couldn't quite catch that. Please try again.");
+            setTimeout(() => setLocationError(null), 3000);
+          }
+        } catch (e: any) {
+          console.error("Location transcription failed", e);
+          setLocationError("Sorry, I couldn't understand that location.");
+          setTimeout(() => setLocationError(null), 3000);
+        } finally {
+          setIsTranscribingLocation(false);
+        }
+      } else {
+        setIsTranscribingLocation(false);
+      }
+    } else {
+      await startRecording();
+      setRecordingFor('location');
     }
   };
 
@@ -211,7 +256,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
     return bytes.buffer;
   };
 
-  const anythingLoading = isLoading || isTranscribing || isVoicePreviewing || isLoadingIdeas || isLoadingLocationIdeas;
+  const anythingLoading = isLoading || isTranscribing || isVoicePreviewing || isLoadingIdeas || isLoadingLocationIdeas || isTranscribingLocation;
 
   if (isLoading || isTranscribing) {
     return <Spinner message={isTranscribing ? "Thinking about your topic..." : (loadingMessage || "Loading...")} />;
@@ -272,8 +317,9 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
       debounceTimeoutRef.current = setTimeout(async () => {
         try {
           const result = await getPlaceAutocomplete(value);
-          if (result && result.predictions) {
-            setLocationSuggestions(result.predictions);
+          // FIX: The new Places API returns "suggestions" not "predictions"
+          if (result && result.suggestions) {
+            setLocationSuggestions(result.suggestions);
           } else {
             setLocationSuggestions([]);
           }
@@ -288,12 +334,14 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
   };
 
   const handleSuggestionClick = (suggestion: any) => {
-    setLocationInput(suggestion.description);
+    // FIX: The new Places API has a different structure for the suggestion object
+    const placeText = suggestion.placePrediction.text.text;
+    setLocationInput(placeText);
     setLocationSuggestions([]);
-    handleGenerateLocationIdeas({ location: suggestion.description });
+    handleGenerateLocationIdeas({ location: placeText });
   };
-  
-  const isListening = recorderState.status === 'recording';
+
+  const isListening = recordingFor === 'topic';
 
   return (
     <>
@@ -403,25 +451,13 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
               <Icon name={isListening ? "check" : "microphone"} className="w-20 h-20" />
             </button>
             <button onClick={handleGenerateIdeas} disabled={anythingLoading || isLoadingIdeas} className="flex items-center justify-center w-20 h-20 bg-yellow-400 text-white rounded-full hover:bg-yellow-500 transition-transform hover:scale-110 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
-                <Icon name="idea" className="w-12 h-12" />
+              <Icon name="idea" className="w-12 h-12" />
             </button>
-            {userLocation && (
-              <button onClick={() => handleGenerateLocationIdeas({})} disabled={anythingLoading || isLoadingLocationIdeas} className="flex items-center justify-center w-16 h-16 bg-teal-400 text-white rounded-full hover:bg-teal-500 transition-transform hover:scale-110 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
-                  <Icon name="location" className="w-10 h-10" />
-              </button>
-            )}
+            <button onClick={() => handleGenerateLocationIdeas({})} disabled={anythingLoading || isLoadingLocationIdeas} className="flex items-center justify-center w-16 h-16 bg-teal-400 text-white rounded-full hover:bg-teal-500 transition-transform hover:scale-110 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
+              <Icon name="location" className="w-10 h-10" />
+            </button>
         </div>
-        {!userLocation && (
-          <div className="mt-4">
-            <button onClick={handleGetLocation} className="text-blue-600 hover:underline">
-              Share your location for local story ideas!
-            </button>
-          </div>
-        )}
-
-        {locationError && (
-          <p className="mt-4 text-sm font-semibold text-red-500 bg-red-100 p-2 rounded-lg">{locationError}</p>
-        )}
+        
         {isLoadingIdeas && <Spinner message="Thinking of some fun ideas..." />}
         {storyIdeas.length > 0 && (
             <div className="mt-8 w-full max-w-lg">
@@ -441,6 +477,26 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
                     ))}
                 </ul>
             </div>
+        )}
+
+        {!userLocation && (
+          <div className="mt-4 flex items-center justify-center gap-2">
+            <button onClick={handleGetLocation} className="text-blue-600 hover:underline">
+              Share your location for local story ideas!
+            </button>
+            <button
+              onClick={() => speak("Share your location or type or say a location for story ideas about a place!", undefined, voice, false, true, speakingRate)}
+              disabled={anythingLoading}
+              className="p-2 rounded-full hover:bg-slate-200 transition disabled:opacity-50"
+              aria-label="Speak location instructions"
+            >
+              <Icon name="speaker" className="w-6 h-6 text-blue-500" />
+            </button>
+          </div>
+        )}
+
+        {locationError && (
+          <p className="mt-4 text-sm font-semibold text-red-500 bg-red-100 p-2 rounded-lg">{locationError}</p>
         )}
 
         {isLoadingLocationIdeas && <Spinner message={`Thinking of stories about ${locationInput}...`} />}
@@ -469,18 +525,39 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
                 type="text"
                 value={locationInput}
                 onChange={handleLocationInputChange}
-                placeholder="Or type a location..."
-                className="w-full p-2 border-2 border-gray-300 rounded-lg"
+                placeholder={isTranscribingLocation ? "Listening for location..." : "Or type a location..."}
+                disabled={anythingLoading}
+                className="w-full p-3 pr-12 border-2 border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition disabled:bg-gray-100"
             />
+            <button
+                onClick={handleLocationMicClick}
+                disabled={anythingLoading && recordingFor !== 'location'}
+                className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500 hover:text-blue-600 disabled:text-gray-300 disabled:cursor-not-allowed"
+                aria-label="Use voice to input location"
+            >
+                <Icon name="microphone" className={`w-6 h-6 transition-colors ${recordingFor === 'location' ? 'text-red-500 animate-pulse' : ''}`} />
+            </button>
             {locationSuggestions.length > 0 && (
-              <ul className="absolute z-50 w-full bg-white border border-gray-300 rounded-lg mt-1 max-h-60 overflow-y-auto">
+              <ul className="absolute z-50 w-full bg-white border border-gray-300 rounded-lg mt-1 max-h-60 overflow-y-auto shadow-lg">
                 {locationSuggestions.map((suggestion) => (
                   <li
-                    key={suggestion.place_id}
+                    // FIX: Use the correct properties from the new API response
+                    key={suggestion.placePrediction.placeId}
                     onClick={() => handleSuggestionClick(suggestion)}
-                    className="p-2 cursor-pointer hover:bg-gray-200"
+                    className="p-2 cursor-pointer hover:bg-gray-100 flex justify-between items-center"
                   >
-                    {suggestion.description}
+                    <span>{suggestion.placePrediction.text.text}</span>
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            speak(suggestion.placePrediction.text.text, undefined, voice, false, true, speakingRate);
+                        }}
+                        disabled={anythingLoading}
+                        className="p-2 rounded-full hover:bg-gray-200 transition disabled:opacity-50"
+                        aria-label="Speak location name"
+                    >
+                        <Icon name="speaker" className="w-6 h-6 text-blue-500" />
+                    </button>
                   </li>
                 ))}
               </ul>
