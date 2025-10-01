@@ -41,6 +41,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
   const [flowState, setFlowState] = useState<FlowState>('INITIAL');
   const [currentStory, setCurrentStory] = useState<Story>(story);
   const [incorrectAttempts, setIncorrectAttempts] = useState(0);
+  const [incorrectTranscription, setIncorrectTranscription] = useState<string | null>(null);  
   const [user, setUser] = useState<User | null>(initialUser);
   const [isPreparingFullStory, setIsPreparingFullStory] = useState(false);
   const [fullStoryLoadingMessage, setFullStoryLoadingMessage] = useState('');
@@ -127,9 +128,17 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
         if (!transcription) {
           throw new Error("Transcription resulted in empty text.");
         }
-        const expectedWord = story.words[currentWordIndex];
-        const { isMatch: wordIsMatch } = await checkWordMatch(transcription, expectedWord);
-        isMatch = wordIsMatch;
+
+        if (readingMode === ReadingMode.SENTENCE) {
+          const expectedSentence = story.sentences[currentSentenceIndex];
+          console.log("Expected sentence:", expectedSentence);
+          console.log("User said:", transcription);
+          isMatch = normalizeText(transcription) === normalizeText(expectedSentence);
+        } else { // ReadingMode.WORD
+          const expectedWord = story.words[currentWordIndex];
+          const { isMatch: wordIsMatch } = await checkWordMatch(transcription, expectedWord);
+          isMatch = wordIsMatch;
+        }
         
         setFlowState('EVALUATING');
         if (isMatch) {
@@ -159,18 +168,33 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
               setFlowState('IDLE');
             }
         } else {
+            setIncorrectTranscription(transcription); // Show what the user said
+            setTimeout(() => setIncorrectTranscription(null), 3000); // Hide it after 3 seconds
             const newAttemptCount = incorrectAttempts + 1;
             setIncorrectAttempts(newAttemptCount);
             setFeedback('incorrect');
 
-            if (newAttemptCount >= 3 && readingMode === ReadingMode.WORD) { // Only skip for word mode
-                speak("That was a tricky one, let's move to the next word.", () => {
+            if (newAttemptCount >= 3) { 
+                const message = readingMode === ReadingMode.WORD
+                    ? "That was a tricky one, let's move to the next word."
+                    : "That was a tricky one, let's move to the next sentence.";
+
+                speak(message, () => {
                     setFeedback(null);
-                    setIncorrectAttempts(0); // Reset for the next word
-                    if (currentWordIndex < story.words.length - 1) {
-                        setCurrentWordIndex(prev => prev + 1);
-                    } else {
-                        setFlowState('FINISHED');
+                    setIncorrectAttempts(0); 
+
+                    if (readingMode === ReadingMode.WORD) {
+                        if (currentWordIndex < story.words.length - 1) {
+                            setCurrentWordIndex(prev => prev + 1);
+                        } else {
+                            setFlowState('FINISHED');
+                        }
+                    } else { 
+                        if (currentSentenceIndex < story.sentences.length - 1) {
+                            setCurrentSentenceIndex(prev => prev + 1);
+                        } else {
+                            setFlowState('FINISHED');
+                        }
                     }
                     setFlowState('IDLE');
                 }, voice, false, true, 1.00);
@@ -379,6 +403,11 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
 
   return (
     <div className="flex flex-col gap-4 w-full h-full animate-fade-in">
+        {incorrectTranscription && (
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-black bg-opacity-70 text-white p-4 rounded-lg animate-fade-in-out z-50">
+            <p className="text-center text-lg">You said: "{incorrectTranscription}"</p>
+          </div>
+        )}
         {isQuizVisible && (
             <ErrorBoundary>
               <QuizModal

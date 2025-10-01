@@ -76,6 +76,13 @@
       .animate-shake {
         animation: shake 0.82s cubic-bezier(.36,.07,.19,.97) both;
       }
+      @keyframes fadeInOut {
+        0%, 100% { opacity: 0; transform: translateY(10px); }
+        20%, 80% { opacity: 1; transform: translateY(0); }
+      }
+      .animate-fade-in-out {
+        animation: fadeInOut 3s ease-in-out;
+      }
     </style>
   <script type="importmap">
 {
