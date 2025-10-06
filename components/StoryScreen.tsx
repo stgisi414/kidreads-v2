@@ -152,6 +152,8 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
                           setCurrentWordIndex(prev => prev + 1);
                           setFlowState('IDLE');
                       } else {
+                          // FIX: Advance index one step beyond the end to stop re-triggering
+                          setCurrentWordIndex(prev => prev + 1); 
                           setFlowState('FINISHED');
                       }
                   } else { // SENTENCE mode
@@ -159,6 +161,8 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
                            setCurrentSentenceIndex(prev => prev + 1);
                            setFlowState('IDLE');
                        } else {
+                           // FIX: Advance index one step beyond the end to stop re-triggering
+                           setCurrentSentenceIndex(prev => prev + 1);
                            setFlowState('FINISHED');
                        }
                   }
@@ -173,7 +177,6 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
 
             const feedbackJsx = (
               <p className="text-center text-lg">
-                You said: "
                 {transcribedWords.map((word, index) => {
                   const normalizedWord = normalizeText(word);
                   const normalizedExpected = index < expectedWords.length ? normalizeText(expectedWords[index]) : '';
@@ -183,7 +186,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
                       {word}{' '}
                     </span>
                   );
-                })}"
+                })}
               </p>
             );
 
@@ -194,29 +197,37 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
             setIncorrectAttempts(newAttemptCount);
             setFeedback('incorrect');
 
-            if (newAttemptCount >= 3) { 
-                const message = readingMode === ReadingMode.WORD
-                    ? "That was a tricky one, let's move to the next word."
-                    : "That was a tricky one, let's move to the next sentence.";
+            if (newAttemptCount >= 3) {
+                const isLastItem = readingMode === ReadingMode.WORD 
+                    ? currentWordIndex === story.words.length - 1
+                    : currentSentenceIndex === story.sentences.length - 1;
+
+                const message = isLastItem
+                    ? "That story was a tricky one, but you've finished."
+                    : (readingMode === ReadingMode.WORD
+                        ? "That was a tricky one, let's move to the next word."
+                        : "That was a tricky one, let's move to the next sentence.");
 
                 speak(message, () => {
                     setFeedback(null);
                     setIncorrectAttempts(0); 
-
-                    if (readingMode === ReadingMode.WORD) {
-                        if (currentWordIndex < story.words.length - 1) {
+                    
+                    // The main logic is now consolidated here
+                    if (isLastItem) {
+                        // FIX 1: Advance index one step beyond the end to stop re-triggering
+                        if (readingMode === ReadingMode.WORD) {
                             setCurrentWordIndex(prev => prev + 1);
                         } else {
-                            setFlowState('FINISHED');
-                        }
-                    } else { 
-                        if (currentSentenceIndex < story.sentences.length - 1) {
                             setCurrentSentenceIndex(prev => prev + 1);
-                        } else {
-                            setFlowState('FINISHED');
                         }
+                        setFlowState('FINISHED'); // Only set FINISHED, no IDLE afterward
+                    } else if (readingMode === ReadingMode.WORD) {
+                        setCurrentWordIndex(prev => prev + 1);
+                        setFlowState('IDLE');
+                    } else { // SENTENCE mode
+                        setCurrentSentenceIndex(prev => prev + 1);
+                        setFlowState('IDLE');
                     }
-                    setFlowState('IDLE');
                 }, voice, false, true, 1.00);
             } else {
                 speak("Let's try again!", () => {
