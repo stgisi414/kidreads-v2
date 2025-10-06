@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import RecordRTC from 'recordrtc';
 
 // Define the state of the recorder
 type RecorderStatus = 'inactive' | 'recording' | 'stopped';
@@ -11,7 +12,7 @@ interface AudioRecorderHook {
   recorderState: RecorderState;
   startRecording: () => Promise<void>;
   stopRecording: () => Promise<string | null>;
-  cancelRecording: () => void; // Add this line
+  cancelRecording: () => void;
   permissionError: boolean;
 }
 
@@ -20,8 +21,7 @@ export const useAudioRecorder = (): AudioRecorderHook => {
       status: 'inactive',
   });
   const [permissionError, setPermissionError] = useState<boolean>(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
+  const recorderRef = useRef<RecordRTC | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
   const startRecording = useCallback(async () => {
@@ -32,15 +32,24 @@ export const useAudioRecorder = (): AudioRecorderHook => {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       
-      const mediaRecorder = new MediaRecorder(streamRef.current, { mimeType: 'audio/webm' });
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
+      const browserIsSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+      
+      const options: RecordRTC.Options = {
+          disableLogs: true,
+          type: "audio",
+          bufferSize: 16384,
+          sampleRate: 44100,
+          numberOfAudioChannels: 1, // Mono is generally better for voice
+      };
 
-      mediaRecorder.addEventListener('dataavailable', (event) => {
-        audioChunksRef.current.push(event.data);
-      });
+      if (browserIsSafari) {
+          options.recorderType = RecordRTC.StereoAudioRecorder;
+      }
 
-      mediaRecorder.start();
+      const recorder = new RecordRTC(stream, options);
+      recorderRef.current = recorder;
+
+      recorder.startRecording();
       setRecorderState({ status: 'recording' });
     } catch (err) {
       console.error("Error starting recording:", err);
@@ -50,43 +59,47 @@ export const useAudioRecorder = (): AudioRecorderHook => {
 
   const stopRecording = useCallback((): Promise<string | null> => {
     return new Promise((resolve) => {
-        if (mediaRecorderRef.current && recorderState.status === 'recording') {
-            setTimeout(() => {
-                mediaRecorderRef.current.addEventListener('stop', () => {
-                    const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-                    const reader = new FileReader();
-                    reader.onloadend = () => {
-                        const base64String = reader.result?.toString().split(',')[1] || null;
-                        setRecorderState({ status: 'stopped' });
-                        audioChunksRef.current = [];
-                        resolve(base64String);
-                    };
-                    reader.readAsDataURL(audioBlob);
-                    streamRef.current?.getTracks().forEach(track => track.stop());
-                });
+        if (recorderRef.current && recorderState.status === 'recording') {
+            recorderRef.current.stopRecording(() => {
+                const audioBlob = recorderRef.current!.getBlob();
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    const base64String = reader.result?.toString().split(',')[1] || null;
+                    resolve(base64String);
+                };
+                reader.readAsDataURL(audioBlob);
 
-                mediaRecorderRef.current.stop();
-            }, 750); // Add a 750ms delay
+                // Clean up
+                recorderRef.current!.destroy();
+                recorderRef.current = null;
+                streamRef.current?.getTracks().forEach((track) => track.stop());
+                setRecorderState({ status: 'stopped' });
+            });
         } else {
             resolve(null);
         }
     });
   }, [recorderState.status]);
   
-  // Add this new cancel function
   const cancelRecording = useCallback(() => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.stop();
+    if (recorderRef.current && recorderState.status === 'recording') {
+        recorderRef.current.stopRecording(() => {
+            recorderRef.current!.destroy();
+            recorderRef.current = null;
+            streamRef.current?.getTracks().forEach((track) => track.stop());
+            setRecorderState({ status: 'inactive' });
+        });
     }
-    streamRef.current?.getTracks().forEach(track => track.stop());
-    setRecorderState({ status: 'inactive' });
-    audioChunksRef.current = [];
-  }, []);
+  }, [recorderState.status]);
 
-  // Add a cleanup effect
   useEffect(() => {
     return () => {
-      streamRef.current?.getTracks().forEach(track => track.stop());
+      if (recorderRef.current) {
+        recorderRef.current.destroy();
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
     };
   }, []);
 

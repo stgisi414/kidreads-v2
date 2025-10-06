@@ -41,7 +41,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
   const [flowState, setFlowState] = useState<FlowState>('INITIAL');
   const [currentStory, setCurrentStory] = useState<Story>(story);
   const [incorrectAttempts, setIncorrectAttempts] = useState(0);
-  const [incorrectTranscription, setIncorrectTranscription] = useState<string | null>(null);  
+  const [incorrectTranscription, setIncorrectTranscription] = useState<React.ReactNode | null>(null); 
   const [user, setUser] = useState<User | null>(initialUser);
   const [isPreparingFullStory, setIsPreparingFullStory] = useState(false);
   const [fullStoryLoadingMessage, setFullStoryLoadingMessage] = useState('');
@@ -168,8 +168,28 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
               setFlowState('IDLE');
             }
         } else {
-            setIncorrectTranscription(transcription); // Show what the user said
-            setTimeout(() => setIncorrectTranscription(null), 3000); // Hide it after 3 seconds
+            const expectedWords = story.sentences[currentSentenceIndex].split(/\s+/).filter(w => w);
+            const transcribedWords = transcription.split(/\s+/).filter(w => w);
+
+            const feedbackJsx = (
+              <p className="text-center text-lg">
+                You said: "
+                {transcribedWords.map((word, index) => {
+                  const normalizedWord = normalizeText(word);
+                  const normalizedExpected = index < expectedWords.length ? normalizeText(expectedWords[index]) : '';
+                  const isWordCorrect = normalizedWord === normalizedExpected;
+                  return (
+                    <span key={index} className={isWordCorrect ? 'text-white' : 'text-red-500 font-bold underline'}>
+                      {word}{' '}
+                    </span>
+                  );
+                })}"
+              </p>
+            );
+
+            setIncorrectTranscription(feedbackJsx);
+            setTimeout(() => setIncorrectTranscription(null), 5500); // Using your 5.5 seconds
+
             const newAttemptCount = incorrectAttempts + 1;
             setIncorrectAttempts(newAttemptCount);
             setFeedback('incorrect');

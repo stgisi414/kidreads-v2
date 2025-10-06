@@ -317,8 +317,6 @@ export const transcribeAudio = onCall(
 
       const audio = { content: audioBytes };
       const config = {
-        encoding: "WEBM_OPUS" as const,
-        sampleRateHertz: 48000,
         languageCode: "en-US",
         model: "latest_long",
       };
