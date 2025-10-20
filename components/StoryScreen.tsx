@@ -316,8 +316,9 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
                   // The AI's total time might not match the actual audio duration.
                   // We calculate a correction factor to stretch the timestamps.
                   const lastWord = transcript[transcript.length - 1];
+                  // FIX: Define transcriptDuration before using it
                   const transcriptDuration = parseFloat(lastWord.endTime || lastWord.startTime);
-                  console.log("correction factor: " + (duration / transcriptionDuration));
+                  console.log("correction factor: " + (duration / transcriptDuration)); // <= Correction: Use transcriptDuration here
                   const correctionFactor = duration / transcriptDuration; //sick ai shit
 
                   console.log(`Audio Duration: ${duration}s, Transcript Duration: ${transcriptDuration}s, Correction Factor: ${correctionFactor}`);
@@ -325,7 +326,7 @@ const StoryScreen: React.FC<StoryScreenProps> = ({ story, user: initialUser, onG
                   let searchFromIndex = 0;
                   transcript.forEach(item => {
                       const { word, startTime } = item;
-                      
+
                       // Apply the correction factor to get the true start time.
                       const startTimeMs = (parseFloat(startTime) * 1000) * correctionFactor;
                       console.log(`Word: "${word}", Original Time: ${startTime}s, Corrected Time: ${startTimeMs}ms`);
