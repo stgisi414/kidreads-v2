@@ -6,7 +6,7 @@
   "etags": {
     "kidreads-v2": {
       "extensionInstances": {
-        "firestore-stripe-payments": "d27b774ac43d522ddd749b8363e95501bbc924de871268035a9161a15000e475"
+        "firestore-stripe-payments": "745d7eabd44e9e26681948807811c7a0a189b6e9862e4e55f230037176fff2d8"
       }
     }
   }

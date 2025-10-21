@@ -2,26 +2,12 @@ import React, { useState } from 'react';
 import type { User } from 'firebase/auth';
 import { loginWithGoogle, logout } from '../services/authService';
 import Icon from './Icon';
+import BrowserErrorModal from './BrowserErrorModal'; // Adjust path if needed
 
 type HeaderProps = {
   onGoHome: () => void;
   user: User | null;
 };
-
-const BrowserErrorModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
-  <div className="modal-overlay">
-    <div className="modal-content">
-      <h2 className="modal-title" style={{ color: '#e53e3e' }}>Unsupported Browser</h2>
-      <p>To sign in with Google, you must open this page in your phone's main browser (e.g., Safari or Chrome).</p>
-      <p style={{ fontSize: '0.9rem', marginTop: '1rem', color: '#a0aec0' }}>
-        <strong>Instructions:</strong> Tap the 'More' or 'Share' button in the browser toolbar and select 'Open in Safari' or 'Open in default browser'.
-      </p>
-      <button onClick={onClose} className="button" style={{ marginTop: '1.5rem' }}>
-        OK
-      </button>
-    </div>
-  </div>
-);
 
 const Header: React.FC<HeaderProps> = ({ onGoHome, user }) => {
   const [showBrowserError, setShowBrowserError] = useState(false);
@@ -84,8 +70,7 @@ const Header: React.FC<HeaderProps> = ({ onGoHome, user }) => {
         </div>
       </header>
 
-      {showBrowserError && <BrowserErrorModal onClose={() => setShowBrowserError(false)} />}
-    </>
+      {showBrowserError && <BrowserErrorModal onClose={() => setShowBrowserError(false)} />}    </>
   );
 };
 

@@ -1,10 +1,14 @@
-// services/firestoreService.ts
-import { collection, doc, getDocs, setDoc, deleteDoc, query, orderBy, getDoc, runTransaction, Timestamp, updateDoc } from "firebase/firestore";
+import {
+  collection, doc, getDocs, setDoc, deleteDoc, query, orderBy, getDoc, runTransaction, Timestamp, updateDoc,
+  // NEW: Import necessary query functions
+  where, limit
+} from "firebase/firestore";
 import { db } from "../firebase";
-import type { Story, SubscriptionStatus, UserData } from '../types';
+import type { Story, SubscriptionStatus, UserData, UsageData } from '../types'; // <-- Added UsageData
 
 const STORIES_COLLECTION = 'stories';
 const USERS_COLLECTION = 'users';
+const CLASSROOMS_COLLECTION = 'classrooms'; // New constant
 const MAX_STORIES = 10;
 
 // Get all saved stories for a specific user
@@ -76,13 +80,13 @@ export const updateUserPreferences = async (userId: string, preferences: { voice
   }
 };
 
-
-// --- ADD NEW FUNCTION ---
-
-const getCreditsForSubscription = (subscription: SubscriptionStatus): number => {
+// --- UPDATED HELPER FUNCTION ---
+const getCreditsForSubscription = (subscription: SubscriptionStatus, isTeacher: boolean = false): number => {
   switch (subscription) {
-    case 'admin': // <-- ADD THIS CASE
+    case 'admin':
       return -1; // Unlimited
+    case 'classroom': // <-- ADD THIS CASE
+      return isTeacher ? 30 : 10; // Teacher gets 30, student gets 10
     case 'lite':
       return 10;
     case 'max':
@@ -96,30 +100,133 @@ const getCreditsForSubscription = (subscription: SubscriptionStatus): number => 
 export const checkAndDecrementCredits = async (
   userId: string,
   creditsToDeduct: number,
+  userEmail: string | null // <-- Need user's email now
 ): Promise<boolean> => {
   const userRef = doc(db, USERS_COLLECTION, userId);
+  const classroomsRef = collection(db, CLASSROOMS_COLLECTION);
 
   try {
-    let isAdmin = false; // Flag to track admin status
+    let isTeacherInClassroom = false;
+    let isStudentInClassroom = false;
+    let classroomSubscriptionStatus: SubscriptionStatus | null = null;
+    let classroomDocId: string | null = null; // Store the classroom ID if found
+
+    // 1. Check if user is a teacher of an active classroom
+    const teacherQuery = query(classroomsRef, where("teacherUid", "==", userId), limit(1));
+    const teacherSnap = await getDocs(teacherQuery);
+    if (!teacherSnap.empty) {
+      const classroomData = teacherSnap.docs[0].data();
+      // Check if the classroom subscription is active (you might need to adjust this check based on Stripe data)
+      if (classroomData.subscriptionStatus === 'active') { // Assuming 'active' status from Stripe webhook
+        isTeacherInClassroom = true;
+        classroomSubscriptionStatus = 'classroom';
+        classroomDocId = teacherSnap.docs[0].id; // Teacher's UID is the doc ID
+        console.log(`User ${userId} is a TEACHER in an active classroom.`);
+      }
+    }
+
+    // 2. If not a teacher, check if user is a student in ANY active classroom
+    if (!isTeacherInClassroom && userEmail) {
+      const studentQuery = query(classroomsRef, where("students", "array-contains", userEmail), limit(1));
+      const studentSnap = await getDocs(studentQuery);
+      if (!studentSnap.empty) {
+         const classroomData = studentSnap.docs[0].data();
+         // Check if the classroom subscription is active
+         if (classroomData.subscriptionStatus === 'active') {
+            isStudentInClassroom = true;
+            classroomSubscriptionStatus = 'classroom';
+            // We need the *teacher's* UID (doc ID) to update their usage later
+            classroomDocId = studentSnap.docs[0].id;
+            console.log(`User ${userId} (${userEmail}) is a STUDENT in active classroom ${classroomDocId}.`);
+         }
+      }
+    }
+
+    // Determine the relevant user document for credit tracking
+    // If in a classroom, credits are tracked on the *teacher's* user document under a specific classroom structure.
+    // Otherwise, track on the individual user's document.
+    const effectiveUserId = (isTeacherInClassroom || isStudentInClassroom) ? classroomDocId : userId;
+    const effectiveUserRef = doc(db, USERS_COLLECTION, effectiveUserId!); // Use ! as we ensure it's set if needed
 
     await runTransaction(db, async (transaction) => {
-      const userDoc = await transaction.get(userRef);
-      if (!userDoc.exists()) {
-        throw new Error("User document does not exist!");
+      const userOrTeacherDoc = await transaction.get(effectiveUserRef);
+      if (!userOrTeacherDoc.exists()) {
+        // This should ideally not happen for the teacher if they have a classroom,
+        // but might happen for a student whose teacher's doc is missing.
+        // Or if the individual user doc is missing.
+        throw new Error(`Document for effective user ${effectiveUserId} does not exist!`);
       }
 
-      const userData = userDoc.data() as UserData; // <-- Cast to UserData
-      const subscription = userData.subscription || 'free';
-      isAdmin = userData.isAdmin || subscription === 'admin'; // Check both flag and subscription string
+      const userData = userOrTeacherDoc.data() as UserData;
+      let usageDataFieldPath: string; // Path to the specific usage data
+      let currentCredits: number;
+      let lastReset: number;
+      let subscriptionType: SubscriptionStatus;
+      let creditLimit: number;
+      let isClassroomContext = isTeacherInClassroom || isStudentInClassroom;
 
-      if (isAdmin) {
-        console.log(`Admin user ${userId} bypassed credit check.`);
-        // No need to update credits for admins, just proceed
-        return; // Exit the transaction function successfully
+      // Determine which usage data to use (individual, teacher, or student within classroom)
+      if (isTeacherInClassroom) {
+          usageDataFieldPath = `classroomUsage.teacher`;
+          const teacherUsage = userData.classroomUsage?.teacher;
+          currentCredits = teacherUsage?.credits ?? getCreditsForSubscription('classroom', true); // Default to max if not set
+          lastReset = teacherUsage?.lastReset ?? 0;
+          subscriptionType = 'classroom'; // Teacher context
+          creditLimit = getCreditsForSubscription(subscriptionType, true);
+          console.log(`Using TEACHER usage for classroom ${classroomDocId}. Current: ${currentCredits}, Limit: ${creditLimit}`);
+      } else if (isStudentInClassroom) {
+          // Use a dynamic path based on the student's UID
+          usageDataFieldPath = `classroomUsage.students.${userId}`;
+          const studentUsage = userData.classroomUsage?.students?.[userId];
+          currentCredits = studentUsage?.credits ?? getCreditsForSubscription('classroom', false); // Default to max if not set
+          lastReset = studentUsage?.lastReset ?? 0;
+          subscriptionType = 'classroom'; // Student context
+          creditLimit = getCreditsForSubscription(subscriptionType, false);
+           console.log(`Using STUDENT usage for user ${userId} in classroom ${classroomDocId}. Current: ${currentCredits}, Limit: ${creditLimit}`);
+      } else {
+          // Individual user context (not in an active classroom)
+          usageDataFieldPath = 'usage';
+          currentCredits = userData.usage?.credits ?? getCreditsForSubscription('free'); // Default to free if no usage
+          lastReset = userData.usage?.lastReset ?? 0;
+          subscriptionType = userData.subscription || 'free'; // Use individual subscription
+          // Special handling for individual 'admin' or 'classroom' (if somehow set directly)
+           if (subscriptionType === 'admin') {
+               creditLimit = -1; // Unlimited
+           } else if (subscriptionType === 'classroom') {
+               // This case shouldn't normally happen for credit deduction unless it's a teacher's doc directly
+               // If it's a teacher's doc, treat as teacher. Otherwise, fallback? Let's assume teacher here.
+               creditLimit = getCreditsForSubscription('classroom', true);
+           } else {
+               creditLimit = getCreditsForSubscription(subscriptionType, false);
+           }
+          console.log(`Using INDIVIDUAL usage for user ${userId}. Sub: ${subscriptionType}, Current: ${currentCredits}, Limit: ${creditLimit}`);
       }
 
-      let currentCredits = userData.usage?.credits ?? 0;
-      const lastReset = userData.usage?.lastReset ?? 0;
+       // Check for Max subscription override for STUDENTS only
+      if (isStudentInClassroom) {
+        const studentDoc = await transaction.get(userRef); // Get the student's own doc
+        if (studentDoc.exists()) {
+            const studentData = studentDoc.data() as UserData;
+            if (studentData.subscription === 'max') {
+                console.log(`Student ${userId} has 'max' subscription, overriding classroom credits.`);
+                // Switch context back to the individual student
+                isClassroomContext = false;
+                usageDataFieldPath = 'usage';
+                currentCredits = studentData.usage?.credits ?? getCreditsForSubscription('max');
+                lastReset = studentData.usage?.lastReset ?? 0;
+                subscriptionType = 'max';
+                creditLimit = getCreditsForSubscription(subscriptionType, false);
+                 console.log(`Using individual MAX usage for student ${userId}. Current: ${currentCredits}, Limit: ${creditLimit}`);
+            }
+        }
+      }
+
+      // Handle unlimited credits (admin or classroom teacher/student with admin-like setup)
+      if (creditLimit === -1) {
+        console.log(`User ${userId} (effective: ${effectiveUserId}) has unlimited credits.`);
+        // No transaction update needed for credits
+        return; // Exit transaction successfully
+      }
 
       const now = Date.now();
       const lastResetDate = new Date(lastReset);
@@ -131,41 +238,43 @@ export const checkAndDecrementCredits = async (
         lastResetDate.getUTCMonth() !== nowDate.getUTCMonth() ||
         lastResetDate.getUTCDate() !== nowDate.getUTCDate()
       ) {
-        // New day, reset credits based on subscription fetched from the document
-        currentCredits = getCreditsForSubscription(subscription);
+        console.log(`New day detected for ${usageDataFieldPath} on user ${effectiveUserId}. Resetting credits.`);
+        currentCredits = creditLimit; // Reset to the limit for the determined context
 
         if (currentCredits >= creditsToDeduct) {
-          // Has enough credits after reset
-          transaction.update(userRef, {
-            "usage.credits": currentCredits - creditsToDeduct,
-            "usage.lastReset": now,
-          });
+          const updates: { [key: string]: any } = {};
+          updates[`${usageDataFieldPath}.credits`] = currentCredits - creditsToDeduct;
+          updates[`${usageDataFieldPath}.lastReset`] = now;
+          transaction.update(effectiveUserRef, updates);
+           console.log(`Credits sufficient after reset. Updating ${usageDataFieldPath} for ${effectiveUserId} to ${currentCredits - creditsToDeduct}.`);
         } else {
-          // Not enough credits even after reset
-           transaction.update(userRef, {
-            "usage.credits": currentCredits, // Update credits even if insufficient
-            "usage.lastReset": now,          // Update lastReset
-          });
+          // Update lastReset and current credits even if insufficient
+          const updates: { [key: string]: any } = {};
+          updates[`${usageDataFieldPath}.credits`] = currentCredits;
+          updates[`${usageDataFieldPath}.lastReset`] = now;
+          transaction.update(effectiveUserRef, updates);
+          console.log(`Credits insufficient even after reset for ${usageDataFieldPath} on user ${effectiveUserId}. Credits remain ${currentCredits}.`);
           throw new Error("Not enough credits for this action after daily reset.");
         }
       } else {
         // Same day, just check credits
         if (currentCredits >= creditsToDeduct) {
-          // Has enough credits
-          transaction.update(userRef, {
-            "usage.credits": currentCredits - creditsToDeduct,
-          });
+          const updates: { [key: string]: any } = {};
+          updates[`${usageDataFieldPath}.credits`] = currentCredits - creditsToDeduct;
+          // Only update credits, not lastReset
+          transaction.update(effectiveUserRef, updates);
+           console.log(`Credits sufficient. Updating ${usageDataFieldPath} for ${effectiveUserId} to ${currentCredits - creditsToDeduct}.`);
         } else {
-          // Not enough credits
+          console.log(`Credits insufficient for ${usageDataFieldPath} on user ${effectiveUserId}. Current: ${currentCredits}, Needed: ${creditsToDeduct}.`);
           throw new Error("Not enough credits for this action.");
         }
       }
     });
 
-    // Transaction was successful (or bypassed for admin)
+    // Transaction was successful
     return true;
   } catch (error: any) {
-    console.error("Credit check/decrement transaction failed:", error.message);
+    console.error(`Credit check/decrement transaction failed for user ${userId} (email: ${userEmail}):`, error.message);
     // Transaction failed (e.g., not enough credits or other error)
     return false;
   }

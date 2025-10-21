@@ -10,7 +10,8 @@ import { getSavedStories, deleteStory } from '../services/firestoreService';
 import { loginWithGoogle } from '../services/authService'; // Removed logout, it's in UserProfile
 import * as Tone from 'tone';
 import ErrorBoundary from './ErrorBoundary';
-import UserProfile from './UserProfile'; // <-- ADDED
+import UserProfile from './UserProfile';
+import BrowserErrorModal from './BrowserErrorModal'; // Adjust path if needed
 
 type HomeScreenProps = {
   onCreateStory: (topic: string, storyLength: number) => void;
@@ -36,23 +37,6 @@ type HomeScreenProps = {
 const ideaColors = ['text-amber-600', 'text-emerald-600', 'text-sky-600', 'text-rose-600'];
 const lengthLabels = ["Short", "Medium", "Long", "Epic"];
 const creditCost = [1, 2, 3, 4]; // <-- ADDED
-
-// --- ADDED BrowserErrorModal (copied from your original) ---
-const BrowserErrorModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
-  <div className="modal-overlay">
-    <div className="modal-content">
-      <h2 className="modal-title" style={{ color: '#e53e3e' }}>Unsupported Browser</h2>
-      <p>To sign in with Google, you must open this page in your phone's main browser (e.g., Safari or Chrome).</p>
-      <p style={{ fontSize: '0.9rem', marginTop: '1rem', color: '#a0aec0' }}>
-        <strong>Instructions:</strong> Tap the 'More' or 'Share' button in the browser toolbar and select 'Open in Safari' or 'Open in default browser'.
-      </p>
-      <button onClick={onClose} className="button" style={{ marginTop: '1.5rem' }}>
-        OK
-      </button>
-    </div>
-  </div>
-);
-// --- END ADDED ---
 
 const HomeScreen: React.FC<HomeScreenProps> = ({ 
   user, 
