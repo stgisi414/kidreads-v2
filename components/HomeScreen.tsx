@@ -4,13 +4,13 @@ import Icon from './Icon';
 import { useAudioRecorder } from '../hooks/useAudioRecorder';
 import { transcribeAudio, generateStoryIdeas, generateLocationStoryIdeas, getPlaceAutocomplete } from '../services/geminiService';
 import SavedStoriesModal from './SavedStoriesModal';
-import type { Story } from '../types';
+import type { Story, UserData } from '../types'; // <-- MODIFIED
 import { useTextToSpeech } from '../hooks/useTextToSpeech';
 import { getSavedStories, deleteStory } from '../services/firestoreService';
-import type { User } from 'firebase/auth';
-import { loginWithGoogle, logout } from '../services/authService';
+import { loginWithGoogle } from '../services/authService'; // Removed logout, it's in UserProfile
 import * as Tone from 'tone';
 import ErrorBoundary from './ErrorBoundary';
+import UserProfile from './UserProfile'; // <-- ADDED
 
 type HomeScreenProps = {
   onCreateStory: (topic: string, storyLength: number) => void;
@@ -24,14 +24,56 @@ type HomeScreenProps = {
   onSpeakingRateChange: (rate: number) => void;
   storyLength: number;
   onStoryLengthChange: (length: number) => void;
-  user: User | null;
+  user: UserData | null; // <-- MODIFIED
   setError: (error: string | null) => void;
+  // --- ADDED ---
+  onUpgradeClick: () => void;
+  onCancelSubscription: () => void;
+  isCancelling: boolean;
+  // --- END ADDED ---
 };
 
 const ideaColors = ['text-amber-600', 'text-emerald-600', 'text-sky-600', 'text-rose-600'];
 const lengthLabels = ["Short", "Medium", "Long", "Epic"];
+const creditCost = [1, 2, 3, 4]; // <-- ADDED
 
-const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStory, isLoading, loadingMessage, error, voice, onVoiceChange, speakingRate, onSpeakingRateChange, storyLength, onStoryLengthChange, setError }) => {
+// --- ADDED BrowserErrorModal (copied from your original) ---
+const BrowserErrorModal: React.FC<{ onClose: () => void }> = ({ onClose }) => (
+  <div className="modal-overlay">
+    <div className="modal-content">
+      <h2 className="modal-title" style={{ color: '#e53e3e' }}>Unsupported Browser</h2>
+      <p>To sign in with Google, you must open this page in your phone's main browser (e.g., Safari or Chrome).</p>
+      <p style={{ fontSize: '0.9rem', marginTop: '1rem', color: '#a0aec0' }}>
+        <strong>Instructions:</strong> Tap the 'More' or 'Share' button in the browser toolbar and select 'Open in Safari' or 'Open in default browser'.
+      </p>
+      <button onClick={onClose} className="button" style={{ marginTop: '1.5rem' }}>
+        OK
+      </button>
+    </div>
+  </div>
+);
+// --- END ADDED ---
+
+const HomeScreen: React.FC<HomeScreenProps> = ({ 
+  user, 
+  onCreateStory, 
+  onLoadStory, 
+  isLoading, 
+  loadingMessage, 
+  error, 
+  voice, 
+  onVoiceChange, 
+  speakingRate, 
+  onSpeakingRateChange, 
+  storyLength, 
+  onStoryLengthChange, 
+  setError,
+  // --- ADDED ---
+  onUpgradeClick,
+  onCancelSubscription,
+  isCancelling
+  // --- END ADDED ---
+}) => {
   const { recorderState, startRecording, stopRecording, permissionError } = useAudioRecorder();
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isStoriesModalVisible, setStoriesModalVisible] = useState(false);
@@ -133,6 +175,16 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
     );
   };
   
+  const base64ToArrayBuffer = (base64: string) => {
+    const binaryString = window.atob(base64);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes.buffer;
+  };
+
   const handleReadInstructions = useCallback(async () => {
     if (instructionAudio) {
       instructionAudio.play();
@@ -246,16 +298,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
     }
   };
 
-  const base64ToArrayBuffer = (base64: string) => {
-    const binaryString = window.atob(base64);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-    return bytes.buffer;
-  };
-
   const anythingLoading = isLoading || isTranscribing || isVoicePreviewing || isLoadingIdeas || isLoadingLocationIdeas || isTranscribingLocation;
 
   if (isLoading || isTranscribing) {
@@ -285,7 +327,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
     const locationString = location || locationInput;
 
     if (!coordinates && !locationString) {
-      setError("Please provide a location.");
+      // Don't set a hard error, just return. The button to generate is what shows the error.
+      // This allows the location ideas section to just be empty.
       return;
     }
 
@@ -296,7 +339,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
       const params = locationString ? { location: locationString } : { latitude: coordinates!.latitude, longitude: coordinates!.longitude };
       const { ideas, location: fetchedLocation } = await generateLocationStoryIdeas(params);
       setLocationStoryIdeas(ideas);
-      setLocationInput(fetchedLocation);
+      setLocationInput(fetchedLocation); // Update input with formatted location
     } catch (e) {
       console.error("Failed to generate location story ideas", e);
       setError("I couldn't think of any ideas for that location. Please try another one.");
@@ -317,7 +360,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
       debounceTimeoutRef.current = setTimeout(async () => {
         try {
           const result = await getPlaceAutocomplete(value);
-          // FIX: The new Places API returns "suggestions" not "predictions"
           if (result && result.suggestions) {
             setLocationSuggestions(result.suggestions);
           } else {
@@ -334,7 +376,6 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
   };
 
   const handleSuggestionClick = (suggestion: any) => {
-    // FIX: The new Places API has a different structure for the suggestion object
     const placeText = suggestion.placePrediction.text.text;
     setLocationInput(placeText);
     setLocationSuggestions([]);
@@ -343,27 +384,67 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
 
   const isListening = recordingFor === 'topic';
 
+  // --- ADDED: Credit cost and display logic ---
+  const currentCost = creditCost[storyLength];
+  const getCreditDisplay = () => {
+    if (!user) return null;
+    const { credits } = user.usage;
+    return (
+      <span className={`font-bold ${credits < currentCost ? 'text-red-500' : 'text-blue-600'}`}>
+        {credits}
+      </span>
+    );
+  };
+  // --- END ADDED ---
+
   return (
     <>
-      <div className="flex flex-col items-center justify-center text-center p-6 rounded-3xl bg-white shadow-lg animate-fade-in">
-        {isStoriesModalVisible && (
-          <ErrorBoundary>
-            <SavedStoriesModal
-              savedStories={savedStories}
-              onLoadStory={onLoadStory}
-              onDeleteStory={handleDeleteStory}
-              onClose={() => setStoriesModalVisible(false)}
-              voice={voice}
-              speakingRate={speakingRate}
+      {/* This is the main div for the component.
+        We add the UserProfile button in the top-right corner, absolutely positioned.
+      */}
+      <div className="flex flex-col items-center justify-center text-center p-6 rounded-3xl bg-white shadow-lg animate-fade-in w-full">
+        
+        {/* --- ADDED: UserProfile/Login Button --- */}
+        <div className="absolute top-4 right-4 z-10"> {/* Added z-index */}
+          {user ? (
+            // Pass user data to the UserProfile component, it handles its own button appearance internally now
+            <UserProfile
               user={user}
+              onUpgradeClick={onUpgradeClick}
+              onCancelSubscription={onCancelSubscription}
+              isCancelling={isCancelling}
             />
-          </ErrorBoundary>
+          ) : (
+            <button
+              onClick={signIn} // Use the signIn function defined in HomeScreen
+              disabled={anythingLoading}
+              className="flex items-center gap-2 px-3 py-2 md:px-4 md:py-2 bg-blue-500 text-white rounded-full font-bold text-base md:text-lg hover:bg-blue-600 transition"
+            >
+              <Icon name="login" className="w-5 h-5 md:w-6 md:h-6" />
+              <span className="hidden sm:inline">Login</span>
+            </button>
+          )}
+        </div>
+        {/* --- END ADDED --- */}
+
+        {isStoriesModalVisible && (
+           <ErrorBoundary>
+             <SavedStoriesModal
+               savedStories={savedStories}
+               onLoadStory={onLoadStory}
+               onDeleteStory={handleDeleteStory}
+               onClose={() => setStoriesModalVisible(false)}
+               voice={voice}
+               speakingRate={speakingRate}
+               user={user}
+             />
+           </ErrorBoundary>
         )}
         <h1 className="text-5xl md:text-6xl font-black text-blue-600 mb-2 flex items-center justify-center">
-          <video autoPlay loop muted playsInline className="w-16 h-16 md:w-20 md:h-20 mr-2 md:mr-4">
-            <source src="/kidreads.mp4" type="video/mp4" />
-          </video>
-          KidReads
+           <video autoPlay loop muted playsInline className="w-16 h-16 md:w-20 md:h-20 mr-2 md:mr-4">
+             <source src="/kidreads.mp4" type="video/mp4" />
+           </video>
+           KidReads
         </h1>
         <p className="text-2xl text-slate-600 mb-6">Your AI Reading Buddy!</p>
         
@@ -371,20 +452,20 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
           <h3 className="text-xl font-bold text-slate-700 mb-2">Choose a Voice</h3>
           <div className="flex justify-center gap-4">
               <button 
-                  onClick={() => handleVoiceSelection('Leda')}
-                  disabled={anythingLoading}
-                  className={`text-5xl p-3 rounded-full transition-all ${voice === 'Leda' ? 'bg-blue-200 ring-4 ring-blue-400' : 'hover:bg-slate-200'} disabled:opacity-50 disabled:cursor-not-allowed`}
-                  aria-label="Select female voice"
+                onClick={() => handleVoiceSelection('Leda')}
+                disabled={anythingLoading}
+                className={`text-5xl p-3 rounded-full transition-all ${voice === 'Leda' ? 'bg-blue-200 ring-4 ring-blue-400' : 'hover:bg-slate-200'} disabled:opacity-50 disabled:cursor-not-allowed`}
+                aria-label="Select female voice"
               >
-                  <span>👩🏻</span>
+                <span>👩🏻</span>
               </button>
               <button
-                  onClick={() => handleVoiceSelection('Orus')}
-                  disabled={anythingLoading}
-                  className={`text-5xl p-3 rounded-full transition-all ${voice === 'Orus' ? 'bg-blue-200 ring-4 ring-blue-400' : 'hover:bg-slate-200'} disabled:opacity-50 disabled:cursor-not-allowed`}
-                  aria-label="Select male voice"
+                onClick={() => handleVoiceSelection('Orus')}
+                disabled={anythingLoading}
+                className={`text-5xl p-3 rounded-full transition-all ${voice === 'Orus' ? 'bg-blue-200 ring-4 ring-blue-400' : 'hover:bg-slate-200'} disabled:opacity-50 disabled:cursor-not-allowed`}
+                aria-label="Select male voice"
               >
-                  <span>👨🏽‍🦱</span>
+                <span>👨🏽‍🦱</span>
               </button>
           </div>
         </div>
@@ -393,20 +474,20 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
           <h3 className="text-xl font-bold text-slate-700 mb-2">Choose a Speed</h3>
           <div className="flex justify-center gap-4">
               <button 
-                  onClick={() => handleSpeedSelection(0.55)}
-                  disabled={anythingLoading}
-                  className={`text-5xl p-3 rounded-full transition-all ${speakingRate === 0.55 ? 'bg-blue-200 ring-4 ring-blue-400' : 'hover:bg-slate-200'} disabled:opacity-50 disabled:cursor-not-allowed`}
-                  aria-label="Select slow speed"
+                onClick={() => handleSpeedSelection(0.55)}
+                disabled={anythingLoading}
+                className={`text-5xl p-3 rounded-full transition-all ${speakingRate === 0.55 ? 'bg-blue-200 ring-4 ring-blue-400' : 'hover:bg-slate-200'} disabled:opacity-50 disabled:cursor-not-allowed`}
+                aria-label="Select slow speed"
               >
-                  <span>🐢</span>
+                <span>🐢</span>
               </button>
               <button
-                  onClick={() => handleSpeedSelection(1.0)}
-                  disabled={anythingLoading}
-                  className={`text-5xl p-3 rounded-full transition-all ${speakingRate === 1.0 ? 'bg-blue-200 ring-4 ring-blue-400' : 'hover:bg-slate-200'} disabled:opacity-50 disabled:cursor-not-allowed`}
-                  aria-label="Select normal speed"
+                onClick={() => handleSpeedSelection(1.0)}
+                disabled={anythingLoading}
+                className={`text-5xl p-3 rounded-full transition-all ${speakingRate === 1.0 ? 'bg-blue-200 ring-4 ring-blue-400' : 'hover:bg-slate-200'} disabled:opacity-50 disabled:cursor-not-allowed`}
+                aria-label="Select normal speed"
               >
-                  <span>🐇</span>
+                <span>🐇</span>
               </button>
           </div>
         </div>
@@ -422,6 +503,17 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
             disabled={anythingLoading}
             className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer"
           />
+          {/* --- ADDED: Credit Cost Display --- */}
+          <div className="text-center mt-2 text-lg text-slate-600">
+            Cost: <span className="font-bold text-blue-600">{currentCost} Credit{currentCost > 1 ? 's' : ''}</span>
+            {user && (
+              <>
+                &nbsp;&middot;&nbsp;
+                Your Credits: {getCreditDisplay()}
+              </>
+            )}
+          </div>
+          {/* --- END ADDED --- */}
         </div>
 
         <div className="mb-10 space-y-4">
@@ -443,10 +535,10 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
               onClick={handleMicClick}
               disabled={permissionError || anythingLoading}
               className={`flex items-center justify-center w-40 h-40 rounded-full transition-all duration-300 ease-in-out focus:outline-none focus:ring-4 focus:ring-blue-300
-                          ${isListening
-                            ? 'bg-red-500 text-white animate-pulse-strong shadow-2xl'
-                            : 'bg-blue-500 hover:bg-blue-600 text-white shadow-xl'}
-                            disabled:bg-slate-400 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none`}
+                            ${isListening
+                              ? 'bg-red-500 text-white animate-pulse-strong shadow-2xl'
+                              : 'bg-blue-500 hover:bg-blue-600 text-white shadow-xl'}
+                              disabled:bg-slate-400 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none`}
             >
               <Icon name={isListening ? "check" : "microphone"} className="w-20 h-20" />
             </button>
@@ -499,10 +591,10 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
           <p className="mt-4 text-sm font-semibold text-red-500 bg-red-100 p-2 rounded-lg">{locationError}</p>
         )}
 
-        {isLoadingLocationIdeas && <Spinner message={`Thinking of stories about ${locationInput}...`} />}
+        {isLoadingLocationIdeas && <Spinner message={`Thinking of stories about ${locationInput || 'your location'}...`} />}
         {locationStoryIdeas.length > 0 && (
             <div className="mt-8 w-full max-w-lg p-4 bg-teal-50 rounded-2xl shadow-inner">
-                <h3 className="text-xl font-bold text-teal-700 mb-2">Story ideas about your location!</h3>
+                <h3 className="text-xl font-bold text-teal-700 mb-2">Story ideas about {locationInput}!</h3>
                 <ul className="list-none p-0 m-0">
                     {locationStoryIdeas.map((idea, index) => (
                         <li key={index} className="flex items-center justify-between gap-2 py-2 border-b border-teal-200">
@@ -522,26 +614,25 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
         )}
         <div className="mt-4 w-full max-w-lg relative">
             <input 
-                type="text"
-                value={locationInput}
-                onChange={handleLocationInputChange}
-                placeholder={isTranscribingLocation ? "Listening for location..." : "Or type a location..."}
-                disabled={anythingLoading}
-                className="w-full p-3 pr-12 border-2 border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition disabled:bg-gray-100"
+              type="text"
+              value={locationInput}
+              onChange={handleLocationInputChange}
+              placeholder={isTranscribingLocation ? "Listening for location..." : "Or type a location..."}
+              disabled={anythingLoading}
+              className="w-full p-3 pr-12 border-2 border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition disabled:bg-gray-100"
             />
             <button
-                onClick={handleLocationMicClick}
-                disabled={anythingLoading && recordingFor !== 'location'}
-                className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500 hover:text-blue-600 disabled:text-gray-300 disabled:cursor-not-allowed"
-                aria-label="Use voice to input location"
+              onClick={handleLocationMicClick}
+              disabled={anythingLoading && recordingFor !== 'location'}
+              className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-500 hover:text-blue-600 disabled:text-gray-300 disabled:cursor-not-allowed"
+              aria-label="Use voice to input location"
             >
-                <Icon name="microphone" className={`w-6 h-6 transition-colors ${recordingFor === 'location' ? 'text-red-500 animate-pulse' : ''}`} />
+              <Icon name="microphone" className={`w-6 h-6 transition-colors ${recordingFor === 'location' ? 'text-red-500 animate-pulse' : ''}`} />
             </button>
             {locationSuggestions.length > 0 && (
               <ul className="absolute z-50 w-full bg-white border border-gray-300 rounded-lg mt-1 max-h-60 overflow-y-auto shadow-lg">
                 {locationSuggestions.map((suggestion) => (
                   <li
-                    // FIX: Use the correct properties from the new API response
                     key={suggestion.placePrediction.placeId}
                     onClick={() => handleSuggestionClick(suggestion)}
                     className="p-2 cursor-pointer hover:bg-gray-100 flex justify-between items-center"
@@ -556,7 +647,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
                         className="p-2 rounded-full hover:bg-gray-200 transition disabled:opacity-50"
                         aria-label="Speak location name"
                     >
-                        <Icon name="speaker" className="w-6 h-6 text-blue-500" />
+                      <Icon name="speaker" className="w-6 h-6 text-blue-500" />
                     </button>
                   </li>
                 ))}
@@ -564,25 +655,19 @@ const HomeScreen: React.FC<HomeScreenProps> = ({ user, onCreateStory, onLoadStor
             )}
         </div>
         
-        <div className="mt-8 flex gap-4">
-          {!user ? (
-            <button onClick={signIn} disabled={anythingLoading} className="flex items-center gap-2 px-6 py-3 bg-blue-500 text-white rounded-full font-bold text-lg hover:bg-blue-600 transition-transform hover:scale-105 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
-              <Icon name="login" className="w-6 h-6" />
-              <span>Login with Google</span>
-            </button>
-          ) : (
-            <>
-              <button onClick={() => setStoriesModalVisible(true)} disabled={anythingLoading} className="flex items-center gap-2 px-6 py-3 bg-purple-500 text-white rounded-full font-bold text-lg hover:bg-purple-600 transition-transform hover:scale-105 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
-                <Icon name="stories" className="w-6 h-6" />
-                <span>My Stories</span>
-              </button>
-              <button onClick={logout} disabled={anythingLoading} className="flex items-center gap-2 px-6 py-3 bg-slate-200 text-slate-700 rounded-full font-bold text-lg hover:bg-slate-300 transition-transform hover:scale-105 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
-                <Icon name="logout" className="w-6 h-6" />
-                <span>Logout</span>
-              </button>
-            </>
-          )}
-        </div>
+        {/* My Stories Button */}
+         <div className="mt-8 flex gap-4">
+           {user && (
+             <button
+               onClick={() => setStoriesModalVisible(true)}
+               disabled={anythingLoading}
+               className="flex items-center gap-2 px-6 py-3 bg-purple-500 text-white rounded-full font-bold text-lg hover:bg-purple-600 transition-transform hover:scale-105 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+             >
+               <Icon name="stories" className="w-6 h-6" />
+               <span>My Stories</span>
+             </button>
+           )}
+         </div>
 
         {error && (
           <p className="mt-8 text-lg font-semibold text-red-500 bg-red-100 p-4 rounded-lg">{error}</p>

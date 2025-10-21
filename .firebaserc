@@ -1,5 +1,13 @@
 {
   "projects": {
     "default": "kidreads-v2"
+  },
+  "targets": {},
+  "etags": {
+    "kidreads-v2": {
+      "extensionInstances": {
+        "firestore-stripe-payments": "d27b774ac43d522ddd749b8363e95501bbc924de871268035a9161a15000e475"
+      }
+    }
   }
 }

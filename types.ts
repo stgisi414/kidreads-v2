@@ -28,3 +28,22 @@ export type Story = {
   quiz: QuizQuestion[];
   quizResults?: QuizResult;
 };
+
+export type SubscriptionStatus = "free" | "lite" | "max" | "inactive";
+
+export interface UsageData {
+  credits: number;
+  lastReset: number; // Timestamp
+}
+
+export interface UserData {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+  subscription: SubscriptionStatus;
+  usage: UsageData;
+  // This mirrors the structure from langcampus-exchange's useAuth
+  stripeId?: string;
+  stripeRole?: string;
+}

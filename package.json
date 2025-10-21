@@ -10,9 +10,11 @@
   },
   "dependencies": {
     "@google/genai": "^1.20.0",
+    "@invertase/firestore-stripe-payments": "^0.0.8",
     "firebase": "^12.3.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "react-router-dom": "^7.9.4",
     "recordrtc": "^5.6.2",
     "tone": "^15.1.22"
   },

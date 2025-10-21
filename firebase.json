@@ -30,5 +30,8 @@
       ],
       "predeploy": []
     }
-  ]
+  ],
+  "extensions": {
+    "firestore-stripe-payments": "invertase/firestore-stripe-payments@0.3.12"
+  }
 }

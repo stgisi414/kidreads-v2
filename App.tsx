@@ -1,7 +1,13 @@
 import React, { useState, useCallback, useEffect } from "react";
+import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import type { User } from "firebase/auth";
+import { httpsCallable } from "firebase/functions";
 import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "./firebase";
+import {
+  createCheckoutSession,
+} from "@invertase/firestore-stripe-payments";
+import { auth, functions, payments } from "./firebase";
+import { useAuth } from "./hooks/useAuth";
 import * as Tone from "tone";
 import type { Story } from "./types";
 import HomeScreen from "./components/HomeScreen";
@@ -11,72 +17,78 @@ import { generateStoryAndIllustration } from "./services/geminiService";
 import {
   getUserPreferences,
   updateUserPreferences,
+  checkAndDecrementCredits,
 } from "./services/firestoreService";
 import Spinner from "./components/Spinner";
 import { splitSentences } from "./utils/textUtils";
 import ErrorBoundary from "./components/ErrorBoundary";
 import ShareStoryScreen from "./components/ShareStoryScreen";
+import TermsOfService from "./components/TermsOfService";
+import PrivacyPolicy from "./components/PrivacyPolicy";
+import SubscriptionModal from "./components/SubscriptionModal";
+import Footer from "./components/Footer"; // Import new footer
 
 type Screen = "home" | "story" | "share";
 
-const App: React.FC = () => {
+const STORY_CREDIT_COST = [
+  1, // Short
+  2, // Medium
+  3, // Long
+  4, // Epic
+];
+
+const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  return (
+    <>
+      {children}
+      <Footer />
+    </>
+  );
+};
+
+const AppContent: React.FC = () => {
+  const { user, loading: authLoading } = useAuth();
+
   const [screen, setScreen] = useState<Screen>("home");
   const [story, setStory] = useState<Story | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [loadingMessage, setLoadingMessage] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
-  const [user, setUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
   const [isInitiallySaved, setIsInitiallySaved] = useState(false);
-  const [storyLength, setStoryLength] = useState<number>(0);
 
   // Set a default voice state, which will be updated from Firestore   or localStorage
   const [voice, setVoice] = useState<string>("Leda");
   const [speakingRate, setSpeakingRate] = useState<number>(1.0);
+  const [storyLength, setStoryLength] = useState<number>(0);
+
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [subscriptionModalReason, setSubscriptionModalReason] = useState<"limit" | "manual">("limit");
+  const [isUpgrading, setIsUpgrading] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
 
   useEffect(() => {
     if (window.location.pathname.startsWith('/story/')) {
       setScreen("share");
     }
-
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        const prefs = await getUserPreferences(currentUser.uid);
-        if (prefs.voice) {
-          setVoice(prefs.voice);
-        } else {
-          const localVoice = localStorage.getItem("selectedVoice") || "Leda";
-          setVoice(localVoice);
-        }
-        if (prefs.speakingRate) {
-          setSpeakingRate(prefs.speakingRate);
-        } else {
-          const localRate = parseFloat(
-            localStorage.getItem("speakingRate") || "1.0"
-          );
-          setSpeakingRate(localRate);
-        }
-        if (prefs.storyLength !== undefined) {
-          setStoryLength(prefs.storyLength);
-        } else {
-          const localLength = parseInt(localStorage.getItem("storyLength") || "0");
-          setStoryLength(localLength);
-        }
-      } else {
-        setVoice(localStorage.getItem("selectedVoice") || "Leda");
-        setSpeakingRate(
-          parseFloat(localStorage.getItem("speakingRate") || "1.0")
-        );
-        setStoryLength(parseInt(localStorage.getItem("storyLength") || "0"));
-      }
-      setAuthLoading(false);
-    });
-    return () => unsubscribe();
   }, []);
 
+  // Sync local settings state when user object loads/changes
+  useEffect(() => {
+    if (user) {
+      getUserPreferences(user.uid).then(prefs => {
+        if (prefs.voice) setVoice(prefs.voice);
+        if (prefs.speakingRate) setSpeakingRate(prefs.speakingRate);
+        if (prefs.storyLength !== undefined) setStoryLength(prefs.storyLength);
+      });
+    } else {
+      // Load from localStorage if logged out
+      setVoice(localStorage.getItem("selectedVoice") || "Leda");
+      setSpeakingRate(parseFloat(localStorage.getItem("speakingRate") || "1.0"));
+      setStoryLength(parseInt(localStorage.getItem("storyLength") || "0"));
+    }
+  }, [user]);
+
   const handleGoHome = useCallback(() => {
-    // Navigate to the root URL if on the share screen
     if (screen === 'share') {
       window.location.href = '/';
     } else {
@@ -86,45 +98,51 @@ const App: React.FC = () => {
     }
   }, [screen]);
 
-  const handleVoiceChange = useCallback(
-    (newVoice: string) => {
-      setVoice(newVoice);
-      // Always save to localStorage immediately for logged-out users or fallback
-      localStorage.setItem("selectedVoice", newVoice);
-      // Only save to Firestore if the user is logged in.
-      if (user) {
-        updateUserPreferences(user.uid, { voice: newVoice });
-      }
-    },
-    [user]
-  );
+  // Settings change handlers now update Firestore if logged in
+  const handleVoiceChange = useCallback((newVoice: string) => {
+    setVoice(newVoice);
+    localStorage.setItem("selectedVoice", newVoice);
+    if (user) {
+      updateUserPreferences(user.uid, { voice: newVoice });
+    }
+  }, [user]);
 
-  const handleSpeakingRateChange = useCallback(
-    (newRate: number) => {
-      setSpeakingRate(newRate);
-      localStorage.setItem("speakingRate", newRate.toString());
-      if (user) {
-        updateUserPreferences(user.uid, { speakingRate: newRate });
-      }
-    },
-    [user]
-  );
+  const handleSpeakingRateChange = useCallback((newRate: number) => {
+    setSpeakingRate(newRate);
+    localStorage.setItem("speakingRate", newRate.toString());
+    if (user) {
+      updateUserPreferences(user.uid, { speakingRate: newRate });
+    }
+  }, [user]);
 
-  const handleStoryLengthChange = useCallback(
-    (newLength: number) => {
-      setStoryLength(newLength);
-      localStorage.setItem("storyLength", newLength.toString());
-      if (user) {
-        updateUserPreferences(user.uid, { storyLength: newLength });
-      }
-    },
-    [user]
-  );
+  const handleStoryLengthChange = useCallback((newLength: number) => {
+    setStoryLength(newLength);
+    localStorage.setItem("storyLength", newLength.toString());
+    if (user) {
+      updateUserPreferences(user.uid, { storyLength: newLength });
+    }
+  }, [user]);
 
   const handleCreateStory = useCallback(async (topic: string, length: number) => {
+    if (!user) {
+      setError("Please log in to create stories.");
+      return;
+    }
+
     if (Tone.context.state !== "running") {
       await Tone.start();
     }
+
+    // --- CREDIT CHECK LOGIC ---
+    const creditsToDeduct = STORY_CREDIT_COST[length];
+    const hasEnoughCredits = await checkAndDecrementCredits(user.uid, creditsToDeduct, user.subscription);
+
+    if (!hasEnoughCredits) {
+      setSubscriptionModalReason("limit");
+      setShowSubscriptionModal(true);
+      return; // Stop execution
+    }
+    // --- END CREDIT CHECK ---
 
     setIsLoading(true);
     setLoadingMessage("Thinking of a wonderful story...");
@@ -146,7 +164,7 @@ const App: React.FC = () => {
         phonemes: {},
         quiz,
       });
-      setIsInitiallySaved(false); // A new story is not saved
+      setIsInitiallySaved(false);
       setScreen("story");
     } catch (err) {
       console.error(err);
@@ -159,24 +177,60 @@ const App: React.FC = () => {
       setIsLoading(false);
       setLoadingMessage("");
     }
-  }, []);
+  }, [user]);
 
   const handleLoadStory = useCallback(async (storyToLoad: Story) => {
     if (Tone.context.state !== "running") {
       await Tone.start();
     }
     setStory(storyToLoad);
-    setIsInitiallySaved(true); // A loaded story is already saved
+    setIsInitiallySaved(true);
     setScreen("story");
+  }, []);
+
+  const handleUpgrade = async (priceId: string) => {
+    if (!user) return;
+    setIsUpgrading(true);
+    try {
+      const session = await createCheckoutSession(payments, {
+        price: priceId,
+        success_url: `${window.location.origin}?checkout_success=true`,
+        cancel_url: window.location.origin,
+      });
+      window.location.assign(session.url);
+    } catch (error) {
+      console.error("Stripe Checkout Error:", error);
+      setError("Could not connect to payment gateway. Please try again.");
+      setIsUpgrading(false);
+    }
+  };
+
+  const handleCancelSubscription = async () => {
+    if (!user) return;
+    setIsCancelling(true);
+    
+    try {
+      const createPortalLink = httpsCallable(functions, 'createStripePortalLink');
+      const { data } = await createPortalLink({ returnUrl: window.location.origin });
+      window.location.assign((data as any).url);
+    } catch (error) {
+      console.error("Error creating portal link:", error);
+      setError("Could not manage subscription. Please try again later.");
+      setIsCancelling(false);
+    }
+  };
+
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    if (query.get("checkout_success")) {
+      alert("Welcome! Your subscription is now active.");
+      window.history.replaceState(null, "", window.location.pathname);
+    }
   }, []);
 
   let pageContent;
   if (screen === 'share') {
-    pageContent = (
-      <ErrorBoundary>
-        <ShareStoryScreen user={user} />
-      </ErrorBoundary>
-    );
+    pageContent = <ErrorBoundary><ShareStoryScreen user={user} /></ErrorBoundary>;
   } else if (screen === 'home') {
     pageContent = (
       <ErrorBoundary>
@@ -194,6 +248,14 @@ const App: React.FC = () => {
           storyLength={storyLength}
           onStoryLengthChange={handleStoryLengthChange}
           setError={setError}
+          // --- PASS NEW PROPS ---
+          onUpgradeClick={() => {
+            setSubscriptionModalReason("manual");
+            setShowSubscriptionModal(true);
+          }}
+          onCancelSubscription={handleCancelSubscription}
+          isCancelling={isCancelling}
+          // --- END NEW PROPS ---
         />
       </ErrorBoundary>
     );
@@ -215,12 +277,41 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen w-full flex flex-col items-center p-4 bg-sky-50 text-slate-800">
-      {/* Conditionally render Header based on screen */}
       {(screen === "story" || screen === "share") && <Header onGoHome={handleGoHome} user={user} />}
       <main className="w-full max-w-4xl mx-auto flex-grow flex items-center justify-center">
         {authLoading ? <Spinner message="Loading your profile..." /> : pageContent}
       </main>
+
+      {/* --- ADDED MODAL --- */}
+      {showSubscriptionModal && (
+        <SubscriptionModal
+          onClose={() => setShowSubscriptionModal(false)}
+          onSubscribe={handleUpgrade}
+          reason={subscriptionModalReason}
+          isUpgrading={isUpgrading}
+        />
+      )}
     </div>
+  );
+};
+
+// Main App component is now the Router
+const App: React.FC = () => {
+  return (
+    <Router>
+      <Routes>
+        <Route path="/terms-of-service" element={<TermsOfService />} />
+        <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+        <Route
+          path="/*"
+          element={
+            <Layout>
+              <AppContent />
+            </Layout>
+          }
+        />
+      </Routes>
+    </Router>
   );
 };
 
