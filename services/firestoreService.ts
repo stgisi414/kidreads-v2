@@ -188,7 +188,7 @@ export const checkAndDecrementCredits = async (
           usageDataFieldPath = 'usage';
           currentCredits = userData.usage?.credits ?? getCreditsForSubscription('free'); // Default to free if no usage
           lastReset = userData.usage?.lastReset ?? 0;
-          subscriptionType = userData.subscription || 'free'; // Use individual subscription
+          subscriptionType = userData.subscription || 'free';
           // Special handling for individual 'admin' or 'classroom' (if somehow set directly)
            if (subscriptionType === 'admin') {
                creditLimit = -1; // Unlimited
@@ -221,10 +221,11 @@ export const checkAndDecrementCredits = async (
         }
       }
 
+      const finalCurrentCredits = Number(currentCredits);
+      
       // Handle unlimited credits (admin or classroom teacher/student with admin-like setup)
-      if (creditLimit === -1) {
+      if (creditLimit === -1 || finalCurrentCredits === -1) { 
         console.log(`User ${userId} (effective: ${effectiveUserId}) has unlimited credits.`);
-        // No transaction update needed for credits
         return; // Exit transaction successfully
       }
 
@@ -239,33 +240,38 @@ export const checkAndDecrementCredits = async (
         lastResetDate.getUTCDate() !== nowDate.getUTCDate()
       ) {
         console.log(`New day detected for ${usageDataFieldPath} on user ${effectiveUserId}. Resetting credits.`);
-        currentCredits = creditLimit; // Reset to the limit for the determined context
+        // We know creditLimit must be > 0 here because of the earlier check
+        let updatedCredits = creditLimit - creditsToDeduct;
 
-        if (currentCredits >= creditsToDeduct) {
+        if (updatedCredits >= 0) {
           const updates: { [key: string]: any } = {};
-          updates[`${usageDataFieldPath}.credits`] = currentCredits - creditsToDeduct;
+          updates[`${usageDataFieldPath}.credits`] = updatedCredits;
           updates[`${usageDataFieldPath}.lastReset`] = now;
           transaction.update(effectiveUserRef, updates);
-           console.log(`Credits sufficient after reset. Updating ${usageDataFieldPath} for ${effectiveUserId} to ${currentCredits - creditsToDeduct}.`);
+           console.log(`Credits sufficient after reset. Updating ${usageDataFieldPath} for ${effectiveUserId} to ${updatedCredits}.`);
         } else {
-          // Update lastReset and current credits even if insufficient
+          // If a very expensive action is taken on a reset day, still deny but log the new reset day
           const updates: { [key: string]: any } = {};
-          updates[`${usageDataFieldPath}.credits`] = currentCredits;
+          updates[`${usageDataFieldPath}.credits`] = creditLimit; // Reset credits to max
           updates[`${usageDataFieldPath}.lastReset`] = now;
           transaction.update(effectiveUserRef, updates);
-          console.log(`Credits insufficient even after reset for ${usageDataFieldPath} on user ${effectiveUserId}. Credits remain ${currentCredits}.`);
+          console.log(`Credits insufficient even after reset for ${usageDataFieldPath} on user ${effectiveUserId}. Credits remain ${creditLimit}.`);
           throw new Error("Not enough credits for this action after daily reset.");
         }
       } else {
         // Same day, just check credits
-        if (currentCredits >= creditsToDeduct) {
+        // FIX: Use the defensively converted number for all math operations
+        const remainingCredits = finalCurrentCredits - creditsToDeduct;
+        
+        if (remainingCredits >= 0) {
           const updates: { [key: string]: any } = {};
-          updates[`${usageDataFieldPath}.credits`] = currentCredits - creditsToDeduct;
+          updates[`${usageDataFieldPath}.credits`] = remainingCredits;
           // Only update credits, not lastReset
           transaction.update(effectiveUserRef, updates);
-           console.log(`Credits sufficient. Updating ${usageDataFieldPath} for ${effectiveUserId} to ${currentCredits - creditsToDeduct}.`);
+           console.log(`Credits sufficient. Updating ${usageDataFieldPath} for ${effectiveUserId} to ${remainingCredits}.`);
         } else {
-          console.log(`Credits insufficient for ${usageDataFieldPath} on user ${effectiveUserId}. Current: ${currentCredits}, Needed: ${creditsToDeduct}.`);
+          // FIX: Use finalCurrentCredits for console log
+          console.log(`Credits insufficient for ${usageDataFieldPath} on user ${effectiveUserId}. Current: ${finalCurrentCredits}, Needed: ${creditsToDeduct}.`);
           throw new Error("Not enough credits for this action.");
         }
       }
