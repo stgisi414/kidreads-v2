@@ -15,9 +15,9 @@ const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ onClose, onSubscr
     : "Choose a plan to get more daily credits for generating stories.";
 
   // TODO: Replace with your actual Stripe Price IDs
-  const LITE_PRICE_ID = "price_1SKZ12GYNyUbUaQ6sEcMRiKE";
-  const MAX_PRICE_ID = "price_1SKZ0tGYNyUbUaQ6kUIoGtmD";
-  const CLASSROOM_PRICE_ID = "price_1SKi4oGYNyUbUaQ6aCKPlfHv";
+  const LITE_PRICE_ID = "price_1SKTUSGYNyUbUaQ6E2MM8qat"; //"price_1SKZ12GYNyUbUaQ6sEcMRiKE";
+  const MAX_PRICE_ID = "price_1SKTVKGYNyUbUaQ6oULXUjhY "; //"price_1SKZ0tGYNyUbUaQ6kUIoGtmD";
+  const CLASSROOM_PRICE_ID = "price_1SKmSxGYNyUbUaQ60JXCyUCU"; //"price_1SKi4oGYNyUbUaQ6aCKPlfHv";
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-60 flex justify-center items-center z-50 p-4" role="dialog" aria-modal="true">

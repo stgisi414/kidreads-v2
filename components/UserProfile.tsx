@@ -1,9 +1,17 @@
 // components/UserProfile.tsx
 
-import React, { useState } from 'react';
-import { UserData } from '../types'; // Ensure UserData includes isAdmin? boolean
+import React, { useState, useEffect } from 'react';
+import { UserData, ClassroomData } from '../types'; // Ensure UserData includes isAdmin? boolean
 import Icon from './Icon'; //
-import { logout } from '../services/authService'; //
+import { logout } from '../services/authService'; 
+import {
+  getClassroomData,
+  addStudentToClassroom,
+  removeStudentFromClassroom
+} from '../services/firestoreService';
+import { getCreditsForSubscription } from '../hooks/useAuth';
+
+const MAX_STUDENTS = 20;
 
 interface UserProfileProps {
   user: UserData;
@@ -14,18 +22,29 @@ interface UserProfileProps {
 
 // --- MODIFY getSubscriptionDetails ---
 const getSubscriptionDetails = (user: UserData) => {
-  // Check isAdmin flag or subscription string for admin status
-  const isAdmin = user.isAdmin || user.subscription === 'admin'; //
+  const isAdmin = user.isAdmin || user.subscription === 'admin';
   if (isAdmin) {
     return { name: "Admin Account", maxCredits: Infinity, color: "text-red-600 font-bold" };
   }
-  // Original logic for paid/free tiers
+  // --- MODIFY CLASSROOM CHECK ---
+  if (user.subscription === 'classroom') {
+    // Check if classroomUsage exists AND has a teacher key to differentiate
+    const isTeacher = !!user.classroomUsage?.teacher;
+    if (isTeacher) {
+        return { name: "Classroom Plan (Teacher)", maxCredits: 30, color: "text-orange-500" };
+    } else {
+        // Assume student if subscription is 'classroom' but no teacher key
+        return { name: "Classroom Plan (Student)", maxCredits: 10, color: "text-green-500" };
+    }
+  }
+  // --- END MODIFY ---
   if (user.subscription === 'lite') {
     return { name: "KidReads Lite", maxCredits: 10, color: "text-blue-500" };
   }
   if (user.subscription === 'max') {
     return { name: "KidReads Max", maxCredits: 25, color: "text-purple-500" };
   }
+  // Default fallback
   return { name: "Free Tier", maxCredits: 5, color: "text-gray-600" };
 };
 // --- END MODIFY ---
@@ -49,16 +68,85 @@ const UserProfile: React.FC<UserProfileProps> = ({
   isCancelling,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
-  // --- MODIFY: Use user object directly ---
   const { name, maxCredits, color } = getSubscriptionDetails(user);
   const isAdmin = user.isAdmin || user.subscription === 'admin';
-  const currentCredits = user.usage?.credits ?? 0; //
-  const percentage = maxCredits > 0 && maxCredits !== Infinity ? (currentCredits / maxCredits) * 100 : 100; // Show 100% for admin
-  // --- END MODIFY ---
+  // Use teacher credits if classroomUsage.teacher exists, otherwise individual usage
+  const displayCredits = user.classroomUsage?.teacher?.credits ?? user.usage?.credits ?? 0; // <-- MODIFIED for teacher credits
+  const creditLimit = user.subscription === 'classroom'
+      ? getCreditsForSubscription('classroom', true) // Teacher limit
+      : maxCredits; // Use limit derived from getSubscriptionDetails for others
+  const percentage = creditLimit > 0 && creditLimit !== Infinity ? (displayCredits / creditLimit) * 100 : (displayCredits === -1 ? 100 : 0); // Handle teacher/admin Infinity/-1
 
   const isPlaceholderUrl = user.photoURL === "https://lh3.googleusercontent.com/a/ACg8ocIXMPVF4sbANVCxU5xZhZGtAsRFe5tDEvTCtdow1epo3YQJKA=s96-c";
   const { initials, color: placeholderColor } = getInitialsPlaceholder(user.displayName);
   const displayNameAvailable = !!user.displayName;
+
+  const [students, setStudents] = useState<string[]>([]);
+  const [newStudentEmail, setNewStudentEmail] = useState('');
+  const [classroomLoading, setClassroomLoading] = useState(false);
+  const [classroomError, setClassroomError] = useState<string | null>(null);
+  const [classroomMessage, setClassroomMessage] = useState<string | null>(null);
+
+  // Fetch student list when modal opens and user is classroom teacher
+  useEffect(() => {
+    if (isOpen && user.subscription === 'classroom' && !isAdmin) {
+      setClassroomLoading(true);
+      getClassroomData(user.uid)
+        .then(data => {
+          if (data) {
+            setStudents(data.students || []);
+          } else {
+            // Handle case where classroom doc might not exist yet?
+             setClassroomError("Could not load classroom data.");
+             setStudents([]);
+          }
+        })
+        .catch(err => {
+            console.error("Error fetching classroom data:", err);
+            setClassroomError("Failed to load student list.");
+        })
+        .finally(() => setClassroomLoading(false));
+    } else {
+        // Reset when modal closes or user is not a classroom teacher
+        setStudents([]);
+        setNewStudentEmail('');
+        setClassroomError(null);
+        setClassroomMessage(null);
+    }
+  }, [isOpen, user.subscription, user.uid, isAdmin]);
+
+  const handleAddStudent = async () => {
+    if (!newStudentEmail.trim() || !user) return;
+    setClassroomLoading(true);
+    setClassroomError(null);
+    setClassroomMessage(null);
+    const result = await addStudentToClassroom(user.uid, newStudentEmail.trim());
+    setClassroomLoading(false);
+    if (result.success) {
+      setStudents(prev => [...prev, newStudentEmail.trim()]);
+      setNewStudentEmail('');
+      setClassroomMessage(result.message);
+    } else {
+      setClassroomError(result.message);
+    }
+    setTimeout(() => { setClassroomMessage(null); setClassroomError(null); }, 3000); // Clear messages after 3s
+  };
+
+  const handleRemoveStudent = async (emailToRemove: string) => {
+    if (!user) return;
+    setClassroomLoading(true);
+    setClassroomError(null);
+    setClassroomMessage(null);
+    const result = await removeStudentFromClassroom(user.uid, emailToRemove);
+    setClassroomLoading(false);
+    if (result.success) {
+      setStudents(prev => prev.filter(email => email !== emailToRemove));
+      setClassroomMessage(result.message);
+    } else {
+      setClassroomError(result.message);
+    }
+     setTimeout(() => { setClassroomMessage(null); setClassroomError(null); }, 3000); // Clear messages after 3s
+  };
 
   console.log("UserProfile user data:", user); //
 
@@ -107,19 +195,20 @@ const UserProfile: React.FC<UserProfileProps> = ({
             </div>
 
             <div className="p-6 space-y-4 overflow-y-auto">
+              {/* Profile Pic/Initials Block */}
               <div className="flex justify-center">
                 {user.photoURL && !isPlaceholderUrl ? (
                   // Case 1: Real Photo URL
-                  <img src={user.photoURL} alt="Profile" className="w-24 h-24 rounded-full" />
+                  <img src={user.photoURL} alt="Profile" className="w-24 h-24 rounded-full object-cover" /> // Added object-cover
                 ) : displayNameAvailable ? (
                    // Case 2: No real URL, but DisplayName is available
                    <div className={`w-24 h-24 rounded-full flex items-center justify-center text-white font-bold text-4xl ${placeholderColor}`}>
-                     {initials} {/* Safe to use initials */}
+                     {initials}
                    </div>
                 ) : (
-                   // Case 3: No real URL and DisplayName is not yet available
+                   // Case 3: Fallback icon
                    <div className="w-24 h-24 rounded-full flex items-center justify-center bg-gray-400">
-                     <Icon name="user" className="w-16 h-16 text-white" /> {/* Fallback icon */}
+                     <Icon name="user" className="w-16 h-16 text-white" />
                    </div>
                 )}
               </div>
@@ -135,25 +224,79 @@ const UserProfile: React.FC<UserProfileProps> = ({
 
               <div className="border-t pt-4">
                 <h3 className="text-sm font-medium text-gray-500">Today's Credits</h3>
-                {/* --- MODIFY Credit Display --- */}
-                {isAdmin ? (
+                {isAdmin || displayCredits === -1 ? ( // Check displayCredits for -1 as well
                    <p className="text-2xl font-bold text-red-600">Unlimited</p>
                 ) : (
                   <>
                     <p className="text-2xl font-bold text-slate-800">
-                      {currentCredits} / {maxCredits}
+                      {/* Use displayCredits here */}
+                      {displayCredits} / {creditLimit}
                     </p>
                     <div className="w-full bg-gray-200 rounded-full h-2.5 mt-2">
                       <div
                         className="bg-blue-500 h-2.5 rounded-full"
+                        // Use calculated percentage
                         style={{ width: `${percentage}%` }}
                       ></div>
                     </div>
                   </>
                 )}
-                 {!isAdmin && <p className="text-xs text-gray-500 mt-1">Credits reset daily (UTC).</p>}
-                 {/* --- END MODIFY --- */}
+                 {/* Only show reset message if not admin and not unlimited */}
+                 {!isAdmin && displayCredits !== -1 && <p className="text-xs text-gray-500 mt-1">Credits reset daily (UTC).</p>}
               </div>
+
+              {/* --- ADDITIONS START: Classroom Management Section --- */}
+              {user.subscription === 'classroom' && !isAdmin && (
+                <div className="border-t pt-4">
+                  <h3 className="text-lg font-semibold text-gray-700 mb-3">Manage Classroom</h3>
+
+                  {classroomLoading && <p className="text-sm text-gray-500">Loading students...</p>}
+                  {classroomError && <p className="text-sm font-bold text-red-500 bg-red-100 p-2 rounded">{classroomError}</p>}
+                  {classroomMessage && <p className="text-sm font-bold text-green-500 bg-green-100 p-2 rounded">{classroomMessage}</p>}
+
+
+                  <div className="flex gap-2 mb-4 mt-2">
+                    <input
+                      type="email"
+                      placeholder="Student email"
+                      value={newStudentEmail}
+                      onChange={(e) => setNewStudentEmail(e.target.value)}
+                      className="flex-grow p-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500"
+                      disabled={classroomLoading}
+                    />
+                    <button
+                      onClick={handleAddStudent}
+                      disabled={classroomLoading || !newStudentEmail.trim()}
+                      className="px-4 py-2 bg-blue-500 text-white font-semibold rounded-md hover:bg-blue-600 text-sm disabled:bg-gray-400"
+                    >
+                      {classroomLoading ? 'Adding...' : 'Add'}
+                    </button>
+                  </div>
+
+                  <p className="text-xs text-gray-500 mb-2">Current Students ({students.length}/{MAX_STUDENTS}):</p>
+                  <div className="max-h-40 overflow-y-auto border rounded-md p-2 bg-gray-50">
+                    {students.length > 0 ? (
+                      <ul className="space-y-1">
+                        {students.map(email => (
+                          <li key={email} className="flex justify-between items-center text-sm">
+                            <span>{email}</span>
+                            <button
+                              onClick={() => handleRemoveStudent(email)}
+                              disabled={classroomLoading}
+                              className="p-1 text-red-500 hover:text-red-700 disabled:text-gray-400"
+                              aria-label={`Remove ${email}`}
+                            >
+                              <Icon name="trash" className="w-4 h-4" />
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      !classroomLoading && <p className="text-sm text-gray-400 italic">No students added yet.</p>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-between items-center p-4 border-t">

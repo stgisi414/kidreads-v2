@@ -135,8 +135,8 @@ const AppContent: React.FC = () => {
 
     // --- CREDIT CHECK LOGIC ---
     const creditsToDeduct = STORY_CREDIT_COST[length];
-    const hasEnoughCredits = await checkAndDecrementCredits(user.uid, creditsToDeduct, user.subscription);
-
+    const hasEnoughCredits = await checkAndDecrementCredits(user.uid, creditsToDeduct, user.email);
+    
     if (!hasEnoughCredits) {
       setSubscriptionModalReason("limit");
       setShowSubscriptionModal(true);

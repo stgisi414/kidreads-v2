@@ -2,22 +2,13 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { doc, onSnapshot, getDoc, collection, updateDoc } from "firebase/firestore";
+import { doc, onSnapshot, getDoc, collection, updateDoc,
+    query, where, limit, getDocs } from "firebase/firestore";
 import { auth, db, payments } from '../firebase';
 import { UserData, SubscriptionStatus, UsageData } from '../types';
 import { onCurrentUserSubscriptionUpdate, Subscription } from '@invertase/firestore-stripe-payments';
 
-// Helper function to determine subscription status from Stripe role
-const getSubscriptionStatus = (stripeRole: string | undefined): SubscriptionStatus => {
-  if (stripeRole === 'lite') return 'lite';
-  if (stripeRole === 'max') return 'max';
-  if (stripeRole === 'admin') return 'admin';
-  if (stripeRole === 'classroom') return 'classroom';
-  return 'free';
-};
-
-// Helper function to get the credit limit for a subscription status
-const getCreditsForSubscription = (subscription: SubscriptionStatus, isTeacher: boolean = false): number => { // <-- Add isTeacher flag
+export const getCreditsForSubscription = (subscription: SubscriptionStatus, isTeacher: boolean = false): number => { // <-- Add export
   switch (subscription) {
     case 'inactive': return 0;
     case 'admin': return -1; // Unlimited
@@ -28,8 +19,17 @@ const getCreditsForSubscription = (subscription: SubscriptionStatus, isTeacher: 
   }
 };
 
+// Helper function to determine subscription status from Stripe role
+const getSubscriptionStatus = (stripeRole: string | undefined): SubscriptionStatus => {
+  if (stripeRole === 'lite') return 'lite';
+  if (stripeRole === 'max') return 'max';
+  if (stripeRole === 'admin') return 'admin';
+  if (stripeRole === 'classroom') return 'classroom';
+  return 'free';
+};
+
 // Default usage data for new users or fallback
-const defaultUsage: UsageData = { credits: 5, lastReset: 0 };
+export const defaultUsage: UsageData = { credits: 5, lastReset: 0 };
 
 // Helper function to update user usage data in Firestore
 const updateUserUsage = async (userId: string, newUsage: UsageData) => {
@@ -42,6 +42,7 @@ const updateUserUsage = async (userId: string, newUsage: UsageData) => {
     }
 };
 
+const CLASSROOMS_COLLECTION = 'classrooms';
 
 export const useAuth = () => {
   const [user, setUser] = useState<UserData | null>(null);
@@ -52,75 +53,85 @@ export const useAuth = () => {
   const customerUnsubscribeRef = useRef(() => {});
   const subscriptionUnsubscribeRef = useRef(() => {});
 
-  useEffect(() => {
-    console.log("useAuth: Effect started."); // DEBUG
+    useEffect(() => {
+    console.log("useAuth: Effect started.");
 
-    const unsubscribeAuth = onAuthStateChanged(auth, (firebaseUser: User | null) => {
-      // --- Cleanup previous listeners on auth change ---
+    const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser: User | null) => { // Make async
+      // Cleanup previous listeners first
       userUnsubscribeRef.current();
       customerUnsubscribeRef.current();
       subscriptionUnsubscribeRef.current();
       setUser(null); // Reset user state
-      setLoading(true); // Reset loading state
-      console.log("useAuth: Auth state changed. User:", firebaseUser?.uid || 'null'); // DEBUG
+      setLoading(true);
+      console.log("useAuth: Auth state changed. User:", firebaseUser?.uid || 'null');
 
       if (firebaseUser) {
         const userId = firebaseUser.uid;
+        const userEmail = firebaseUser.email; // Get email
         const userRef = doc(db, 'users', userId);
         const customerRef = doc(db, 'customers', userId);
         const subscriptionsRef = collection(db, 'customers', userId, 'subscriptions');
 
-        // --- Base User State from Auth ---
-        // Immediately set state with core Auth details to prevent missing photoURL/displayName
+        // Define base user data *fully* from auth
         const baseUserData: UserData = {
             uid: userId,
             email: firebaseUser.email,
             displayName: firebaseUser.displayName,
             photoURL: firebaseUser.photoURL,
-            // Set initial defaults, listeners will update these
-            isAdmin: false,
-            subscription: 'free',
-            usage: defaultUsage,
-            stripeId: undefined,
-            stripeRole: undefined,
+            isAdmin: false, // Default
+            subscription: 'free', // Default
+            usage: defaultUsage, // Default
+            stripeId: undefined, // Default
+            stripeRole: undefined, // Default
+            classroomUsage: undefined // Default
         };
+        // Set initial state immediately
         setUser(baseUserData);
-        console.log("useAuth: Initial base user state set:", baseUserData); // DEBUG
+        console.log("useAuth: Initial base user state set:", JSON.stringify(baseUserData, null, 2));
 
+        let studentCheckCompleted = false; // Flag to manage loading state
 
-        // --- Set up new listeners ---
-
-        // Listener 1: User Document (updates isAdmin, usage, potentially initial subscription)
-        console.log("useAuth: Setting up userDoc listener for", userId); // DEBUG
+        // --- User Document Listener ---
         userUnsubscribeRef.current = onSnapshot(userRef, (userDoc) => {
             console.log(">>> useAuth: userDoc listener FIRED.");
             const userData = userDoc.data() as UserData | undefined;
-            console.log("   userDoc data:", userData);
             setUser(prev => {
-                const previousState = prev || baseUserData;
-                // Determine admin status from doc OR previous state if doc doesn't specify
-                const isAdmin = userData?.isAdmin ?? previousState.isAdmin ?? false;
-                // Determine subscription from doc OR previous state
-                let subscription = userData?.subscription ?? previousState.subscription ?? 'free';
-                // If admin flag is true, force subscription to 'admin'
-                if (isAdmin) {
-                    subscription = 'admin';
+                // If student check already set classroom status, don't revert to free based on student's own doc
+                // AVOID overwriting subscription/usage based on student's own potentially outdated doc.
+                if (studentCheckCompleted && prev?.subscription === 'classroom' && userData?.subscription !== 'classroom') {
+                   console.log("   UserDoc listener: Skipping subscription/usage update, student check completed and set classroom.");
+                   // Only update non-critical fields like preferences, display name, photo URL if they changed
+                   return {
+                       ...(prev || baseUserData), // Keep the existing state (incl. classroom subscription/usage)
+                       // Selectively update fields that *should* come from the user's own doc
+                       preferences: userData?.preferences ?? prev?.preferences,
+                       displayName: userData?.displayName ?? baseUserData.displayName, // Update if changed
+                       photoURL: userData?.photoURL ?? baseUserData.photoURL, // Update if changed
+                       // Explicitly DO NOT update: subscription, usage, classroomUsage, isAdmin, stripeRole here
+                   };
                 }
 
-                // --- NEW: Initialize classroomUsage if missing ---
-                let usage = userData?.usage || defaultUsage;
-                let classroomUsage = userData?.classroomUsage; // Keep existing if present
+                // Normal update if not a student or before student check runs
+                const previousState = prev || baseUserData;
+                const isAdmin = userData?.isAdmin ?? previousState.isAdmin ?? false;
+                let subscription = userData?.subscription ?? previousState.subscription ?? 'free';
+                if (isAdmin) subscription = 'admin';
 
+                console.log("   UserDoc listener: Updating state normally.");
                 return {
-                    ...baseUserData, // Start with fresh auth data
-                    ...previousState, // Merge previous state (stripe data)
-                    // Apply updates from this doc
+                    ...baseUserData,
+                    ...previousState,
                     isAdmin: isAdmin,
-                    subscription: subscription, // Use potentially overridden subscription
-                    usage: usage,
-                    classroomUsage: classroomUsage, // Add classroomUsage
+                    subscription: subscription,
+                    usage: userData?.usage ?? previousState.usage ?? defaultUsage,
+                    preferences: userData?.preferences ?? previousState.preferences,
+                    classroomUsage: userData?.classroomUsage ?? previousState.classroomUsage,
                 };
             });
+             if (!studentCheckCompleted && !userEmail) { // Only stop loading if student check won't run
+                setLoading(false);
+                console.log("   UserDoc listener: Setting loading=false (no email for student check).");
+            }
         }, (error) => {
              console.error(">>> useAuth: userDoc listener ERROR:", error);
              // Set fallback state including base auth info
@@ -150,118 +161,155 @@ export const useAuth = () => {
              });
          });
 
+        // --- START STUDENT CHECK ---
+        if (userEmail) {
+            console.log(`useAuth: Checking if user ${userId} (${userEmail}) is a student.`);
+            const classroomsRef = collection(db, CLASSROOMS_COLLECTION);
+            const studentQuery = query(
+                classroomsRef,
+                where("students", "array-contains", userEmail),
+                where("subscriptionStatus", "==", "active"), // Only check active classrooms
+                limit(1)
+            );
+
+            try {
+                const studentSnap = await getDocs(studentQuery);
+                if (!studentSnap.empty) {
+                    const classroomDoc = studentSnap.docs[0];
+                    const teacherUid = classroomDoc.id;
+                    console.log(`   User is a student in active classroom of teacher ${teacherUid}.`);
+
+                    const teacherUserRef = doc(db, 'users', teacherUid);
+                    const teacherDocSnap = await getDoc(teacherUserRef);
+
+                    if (teacherDocSnap.exists()) {
+                        const teacherData = teacherDocSnap.data() as UserData;
+                        const studentUsageData = teacherData.classroomUsage?.students?.[userId];
+
+                        if (studentUsageData) {
+                            console.log("   Found student usage data under teacher:", studentUsageData);
+                            setUser(prev => ({
+                                ...baseUserData,
+                                ...(prev || {}),
+                                subscription: 'classroom',
+                                stripeRole: 'classroom', // Assign role explicitly
+                                usage: studentUsageData, // IMPORTANT: Use student-specific usage
+                                classroomUsage: undefined, // Clear any potential teacher usage data
+                                isAdmin: false // Ensure student is not admin
+                            }));
+                        } else {
+                            console.warn(`   Student usage data not found under teacher ${teacherUid} for student ${userId}. Setting default student credits.`);
+                             setUser(prev => ({
+                                ...baseUserData,
+                                ...(prev || {}),
+                                subscription: 'classroom',
+                                stripeRole: 'classroom',
+                                usage: { credits: getCreditsForSubscription('classroom', false), lastReset: 0 }, // Apply default student credits
+                                classroomUsage: undefined,
+                                isAdmin: false
+                             }));
+                        }
+                    } else {
+                         console.warn(`   Teacher user document (${teacherUid}) not found. Keeping user as free tier.`);
+                         // If teacher doc missing, student reverts to free effectively
+                         // No state change needed here, default 'free' remains.
+                    }
+                    studentCheckCompleted = true; // Mark student check as done
+                    setLoading(false); // Stop loading *after* student status confirmed
+                    console.log("   Student check complete. Set loading=false.");
+
+                } else {
+                     console.log("   User is not found as a student in any active classroom.");
+                     studentCheckCompleted = true; // Mark as done even if not found
+                }
+            } catch (error) {
+                console.error("   Error checking student status:", error);
+                studentCheckCompleted = true; // Mark as done even on error
+            }
+        } else {
+            studentCheckCompleted = true; // No email, student check can't run
+        }
 
         // --- Stripe Subscription Listener ---
          subscriptionUnsubscribeRef.current = onCurrentUserSubscriptionUpdate(payments, async (snapshot) => {
-             console.log(">>> useAuth: Stripe listener FIRED.");
-             console.log("   Stripe snapshot raw:", JSON.stringify(snapshot, null, 2));
+             console.log(">>> useAuth: Stripe listener FIRED."); // Existing log
+             console.log("   Stripe snapshot raw:", JSON.stringify(snapshot, null, 2)); // Existing log
 
              let finalSubscription: SubscriptionStatus = 'free';
              let finalStripeRole: string | undefined = undefined;
              let finalIsAdmin = false;
              let finalUsage: UsageData | undefined = undefined;
-             let finalClassroomUsage: UserData['classroomUsage'] = undefined; // For classroom credits
+             let finalClassroomUsage: UserData['classroomUsage'] = undefined;
              let previousSubscription: SubscriptionStatus | undefined = undefined;
-
 
              let currentUserData: UserData | null = null;
               setUser(prev => {
                   currentUserData = prev;
                   previousSubscription = prev?.subscription;
-                   // Initialize classroomUsage from previous state if it exists
                   finalClassroomUsage = prev?.classroomUsage;
-                  return prev; // No state change here, just reading
+                  // DEBUG: Log previous state here
+                  console.log("   PREVIOUS User State before Stripe update:", JSON.stringify(prev, null, 2));
+                  return prev;
               });
-
 
              finalIsAdmin = currentUserData?.isAdmin || currentUserData?.subscription === 'admin';
 
-
              if (finalIsAdmin) {
-                 console.log("   Stripe listener: User is admin.");
+                 console.log("   Stripe listener: User is admin."); // Existing log
                  finalSubscription = 'admin';
                  finalUsage = { credits: -1, lastReset: currentUserData?.usage?.lastReset || Date.now() };
-                 // Admins don't have classroomUsage structure
                  finalClassroomUsage = undefined;
              } else {
-                 // Non-admin user logic
                  if (snapshot && Array.isArray(snapshot.subscriptions) && snapshot.subscriptions.length > 0) {
-                      // ... (sorting logic remains the same) ...
+                      const sortedSubs = snapshot.subscriptions.sort(
+                          (a, b) => new Date(b.created).getTime() - new Date(a.created).getTime()
+                      );
                       const newestActiveSubSnapshot = sortedSubs.find(sub => sub && ['active', 'trialing'].includes(sub.status));
 
-                     if (newestActiveSubSnapshot) {
-                         console.log("   Stripe listener: Found newest active sub:", newestActiveSubSnapshot.id);
-                         try {
-                              // ... (fetching sub doc logic remains the same) ...
-                               if (subDocSnap.exists()) {
-                                  // ... (getting role logic remains the same) ...
-                                  // Prioritize metadata, fallback to role
-                                  if (subData?.items?.[0]?.price?.product?.metadata?.stripeRole) {
-                                      finalStripeRole = subData.items[0].price.product.metadata.stripeRole as string;
-                                      console.log("   Role from metadata:", finalStripeRole);
-                                  } else if (subData?.role) {
-                                      finalStripeRole = subData.role;
-                                      console.log("   Role from top-level:", finalStripeRole);
-                                  } else {
-                                      console.warn("   Could not find stripeRole in fetched Firestore doc:", newestActiveSubSnapshot.id);
-                                  }
-                              } else {
-                                  console.warn("   Newest active subscription doc NOT FOUND in Firestore:", newestActiveSubSnapshot.id);
-                              }
-                         } catch (fetchError) { console.error("   Error fetching sub doc:", fetchError); }
+                      if (newestActiveSubSnapshot) {
+                           console.log("   Stripe listener: Found newest active sub:", newestActiveSubSnapshot.id);
 
-                         finalSubscription = getSubscriptionStatus(finalStripeRole);
-                         console.log(`   Determined Role='${finalStripeRole}', Status='${finalSubscription}'`);
+                           let subDocSnap: DocumentSnapshot<DocumentData> | null = null; // Declare outside try
+
+                           try {
+                                const subDocRef = doc(subscriptionsRef, newestActiveSubSnapshot.id);
+                                subDocSnap = await getDoc(subDocRef); // Assign inside try
+
+                                // Now check subDocSnap *inside* the try block after fetching
+                                if (subDocSnap.exists()) {
+                                    const subData = subDocSnap.data();
+                                    console.log("   Fetched Firestore sub doc data:", JSON.stringify(subData, null, 2)); // DEBUG Log
+
+                                    const roleFromMetadata = subData?.items?.[0]?.price?.product?.metadata?.stripeRole;
+                                    const roleFromTopLevel = subData?.role;
+                                    console.log("   DEBUG: Role read from metadata path:", roleFromMetadata); // DEBUG Log
+                                    console.log("   DEBUG: Role read from top-level path:", roleFromTopLevel); // DEBUG Log
+
+                                    // Check metadata first, then fallback to top-level role
+                                    if (roleFromMetadata) {
+                                        finalStripeRole = roleFromMetadata as string;
+                                        console.log("   Using Role from metadata:", finalStripeRole);
+                                    } else if (roleFromTopLevel) {
+                                        finalStripeRole = roleFromTopLevel;
+                                        console.log("   Using Role from top-level:", finalStripeRole);
+                                    } else {
+                                        console.warn("   Could not find stripeRole in fetched Firestore doc:", newestActiveSubSnapshot.id);
+                                    }
+                                } else {
+                                    console.warn("   Newest active subscription doc NOT FOUND in Firestore:", newestActiveSubSnapshot.id);
+                                }
+                           // -------- START FIX --------
+                           } catch (fetchError) {
+                              // The catch block now correctly follows the try block
+                              console.error("   Error fetching sub doc:", fetchError);
+                           }
+                           // -------- END FIX --------
+
+                           // Determine finalSubscription based on finalStripeRole *after* the try...catch
+                           finalSubscription = getSubscriptionStatus(finalStripeRole);
+                           console.log(`   DEBUG: Determined finalStripeRole='${finalStripeRole}', calculated finalSubscription='${finalSubscription}'`); // DEBUG Log
 
 
-                         if (finalSubscription === 'classroom') {
-                             // --- Classroom Subscription Logic ---
-                             console.log("   User has 'classroom' subscription.");
-                             const isTeacher = currentUserData?.uid === userId; // Check if the current user is the teacher
-                             const newTeacherCredits = getCreditsForSubscription('classroom', true);
-                             const newStudentCredits = getCreditsForSubscription('classroom', false);
-                             const now = Date.now();
-
-                             // Initialize or reset teacher credits if needed
-                             const currentTeacherUsage = finalClassroomUsage?.teacher;
-                             const resetTeacher = !currentTeacherUsage || finalSubscription !== previousSubscription;
-                             const teacherUsageUpdate = resetTeacher
-                                 ? { credits: newTeacherCredits, lastReset: now }
-                                 : currentTeacherUsage;
-
-                             // Initialize or reset student credits (if structure exists)
-                             const studentUsageUpdates: { [key: string]: UsageData } = {};
-                              if (finalClassroomUsage?.students) {
-                                  Object.keys(finalClassroomUsage.students).forEach(studentUid => {
-                                      studentUsageUpdates[studentUid] = { credits: newStudentCredits, lastReset: now };
-                                  });
-                              }
-
-                             finalClassroomUsage = {
-                                teacher: teacherUsageUpdate,
-                                students: studentUsageUpdates
-                             };
-                             finalUsage = undefined; // Individual usage not relevant for active classroom teacher
-
-                              if (resetTeacher) {
-                                 console.log(`   Resetting classroom credits for teacher ${userId}.`);
-                                 // Update Firestore directly for classroom reset - might need adjustment if complex
-                                 // For simplicity, we let checkAndDecrement handle daily resets now.
-                                 // await updateDoc(doc(db, USERS_COLLECTION, userId), { classroomUsage: finalClassroomUsage });
-                             }
-
-                         } else if (finalSubscription !== previousSubscription) {
-                             // --- Individual Subscription Change ---
-                             console.log(`   Individual subscription changed from ${previousSubscription} to ${finalSubscription}. Resetting credits.`);
-                             const newMaxCredits = getCreditsForSubscription(finalSubscription, false); // Not a teacher context
-                             finalUsage = { credits: newMaxCredits, lastReset: Date.now() };
-                             await updateUserUsage(userId, finalUsage); // Update individual usage
-                             finalClassroomUsage = undefined; // Clear classroom usage if switching away
-                         } else {
-                             // No change in individual subscription type
-                             finalUsage = currentUserData?.usage || defaultUsage;
-                             finalClassroomUsage = undefined; // Ensure classroom usage is clear
-                         }
                      } else {
                          // No *active* subscription found
                          console.log("   Stripe listener: No ACTIVE subscription found.");
@@ -291,22 +339,42 @@ export const useAuth = () => {
              }
 
              // Final state update
-             console.log("   Stripe listener: Updating final state -> isAdmin:", finalIsAdmin, "subscription:", finalSubscription, "role:", finalStripeRole);
-             setUser(prev => ({
-                ...baseUserData,
-                stripeId: prev?.stripeId,
-                // Apply definitive status from this listener
+             // -------- START DEBUG LOGGING --------
+             console.log(`   DEBUG: Preparing final setUser update. isAdmin: ${finalIsAdmin}, subscription: ${finalSubscription}, stripeRole: ${finalStripeRole}`);
+             const newState = {
+                ...baseUserData, // Make sure you have baseUserData defined with auth info
+                stripeId: currentUserData?.stripeId, // Carry over stripeId
                 isAdmin: finalIsAdmin,
                 subscription: finalSubscription,
                 stripeRole: finalStripeRole,
-                usage: finalUsage, // Might be undefined if classroom sub is active
-                classroomUsage: finalClassroomUsage // Might be undefined if individual sub is active
-             }));
+                usage: finalUsage,
+                classroomUsage: finalClassroomUsage
+             };
+             console.log("   DEBUG: Final state object to be set:", JSON.stringify(newState, null, 2));
+             // -------- END DEBUG LOGGING --------
+
+             setUser(newState); // Actual state update
 
 
-             console.log("   Stripe listener: Setting setLoading = false");
-             setLoading(false); // Final loading state set here
+             // Only set loading false if the student check didn't already
+             if (!studentCheckCompleted) {
+                console.log("   Stripe listener: Setting setLoading = false");
+                setLoading(false);
+             } else {
+                console.log("   Stripe listener: Skipping setLoading=false, student check handled it or doesn't apply.");
+             }
          }); // End Stripe Listener
+
+          setTimeout(() => {
+             // Use a function form of setLoading to avoid race conditions if needed
+             setLoading(prevLoading => {
+                 if (prevLoading) { // Only set to false if it's still true
+                     console.log("useAuth: Setting loading=false (timeout fallback).");
+                     return false;
+                 }
+                 return prevLoading;
+             });
+         }, 2500);
 
       } else {
         // User is signed out
