@@ -1,7 +1,7 @@
 // services/firestoreService.ts
-import { collection, doc, getDocs, setDoc, deleteDoc, query, orderBy, getDoc, runTransaction, Timestamp } from "firebase/firestore";
+import { collection, doc, getDocs, setDoc, deleteDoc, query, orderBy, getDoc, runTransaction, Timestamp, updateDoc } from "firebase/firestore";
 import { db } from "../firebase";
-import type { Story, SubscriptionStatus } from '../types';
+import type { Story, SubscriptionStatus, UserData } from '../types';
 
 const STORIES_COLLECTION = 'stories';
 const USERS_COLLECTION = 'users';
@@ -46,19 +46,34 @@ export const updateStory = async (userId: string, story: Story): Promise<void> =
 // Get user preferences (like selected voice)
 export const getUserPreferences = async (userId: string): Promise<{ voice?: string; speakingRate?: number; storyLength?: number }> => {
   const userDocRef = doc(db, USERS_COLLECTION, userId);
-  const docSnap = await getDoc(userDocRef);
-  if (docSnap.exists()) {
-    // Preferences are now nested
-    return docSnap.data().preferences || {};
+  try {
+      const docSnap = await getDoc(userDocRef);
+      // --- MODIFICATION START ---
+      if (docSnap.exists()) {
+          const data = docSnap.data();
+          // Check if data and preferences exist before returning
+          return data?.preferences || {}; // Return preferences if it exists, otherwise empty object
+      } else {
+          console.log(`No user document found for ${userId} when getting preferences.`); // Log if doc doesn't exist
+          return {}; // Return empty object if document doesn't exist
+      }
+      // --- MODIFICATION END ---
+  } catch (error) {
+      console.error(`Error fetching preferences for user ${userId}:`, error);
+      return {}; // Return empty object on error
   }
-  return {};
 };
 
 // Update user preferences
 export const updateUserPreferences = async (userId: string, preferences: { voice?: string; speakingRate?: number; storyLength?: number }): Promise<void> => {
   const userDocRef = doc(db, USERS_COLLECTION, userId);
-  // Merge with the top-level user document
-  await setDoc(userDocRef, { preferences }, { merge: true });
+  try {
+      // Use updateDoc for potentially existing docs, merge ensures we don't overwrite other fields
+      await setDoc(userDocRef, { preferences }, { merge: true });
+  } catch (error) {
+       console.error(`Error updating preferences for user ${userId}:`, error);
+       // Decide if you want to re-throw or handle the error silently
+  }
 };
 
 
@@ -66,6 +81,8 @@ export const updateUserPreferences = async (userId: string, preferences: { voice
 
 const getCreditsForSubscription = (subscription: SubscriptionStatus): number => {
   switch (subscription) {
+    case 'admin': // <-- ADD THIS CASE
+      return -1; // Unlimited
     case 'lite':
       return 10;
     case 'max':
@@ -79,18 +96,28 @@ const getCreditsForSubscription = (subscription: SubscriptionStatus): number => 
 export const checkAndDecrementCredits = async (
   userId: string,
   creditsToDeduct: number,
-  subscription: SubscriptionStatus
 ): Promise<boolean> => {
   const userRef = doc(db, USERS_COLLECTION, userId);
 
   try {
+    let isAdmin = false; // Flag to track admin status
+
     await runTransaction(db, async (transaction) => {
       const userDoc = await transaction.get(userRef);
       if (!userDoc.exists()) {
         throw new Error("User document does not exist!");
       }
 
-      const userData = userDoc.data();
+      const userData = userDoc.data() as UserData; // <-- Cast to UserData
+      const subscription = userData.subscription || 'free';
+      isAdmin = userData.isAdmin || subscription === 'admin'; // Check both flag and subscription string
+
+      if (isAdmin) {
+        console.log(`Admin user ${userId} bypassed credit check.`);
+        // No need to update credits for admins, just proceed
+        return; // Exit the transaction function successfully
+      }
+
       let currentCredits = userData.usage?.credits ?? 0;
       const lastReset = userData.usage?.lastReset ?? 0;
 
@@ -104,9 +131,9 @@ export const checkAndDecrementCredits = async (
         lastResetDate.getUTCMonth() !== nowDate.getUTCMonth() ||
         lastResetDate.getUTCDate() !== nowDate.getUTCDate()
       ) {
-        // New day, reset credits
+        // New day, reset credits based on subscription fetched from the document
         currentCredits = getCreditsForSubscription(subscription);
-        
+
         if (currentCredits >= creditsToDeduct) {
           // Has enough credits after reset
           transaction.update(userRef, {
@@ -114,12 +141,12 @@ export const checkAndDecrementCredits = async (
             "usage.lastReset": now,
           });
         } else {
-          // Not enough credits even after reset (e.g., free user trying epic story)
+          // Not enough credits even after reset
            transaction.update(userRef, {
-            "usage.credits": currentCredits,
-            "usage.lastReset": now,
+            "usage.credits": currentCredits, // Update credits even if insufficient
+            "usage.lastReset": now,          // Update lastReset
           });
-          throw new Error("Not enough credits for this action.");
+          throw new Error("Not enough credits for this action after daily reset.");
         }
       } else {
         // Same day, just check credits
@@ -135,11 +162,11 @@ export const checkAndDecrementCredits = async (
       }
     });
 
-    // Transaction was successful
+    // Transaction was successful (or bypassed for admin)
     return true;
   } catch (error: any) {
-    console.error("Credit check transaction failed:", error.message);
-    // Transaction failed (e.g., not enough credits)
+    console.error("Credit check/decrement transaction failed:", error.message);
+    // Transaction failed (e.g., not enough credits or other error)
     return false;
   }
 };

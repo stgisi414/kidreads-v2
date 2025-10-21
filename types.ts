@@ -29,7 +29,7 @@ export type Story = {
   quizResults?: QuizResult;
 };
 
-export type SubscriptionStatus = "free" | "lite" | "max" | "inactive";
+export type SubscriptionStatus = "free" | "lite" | "max" | "inactive" | "admin";
 
 export interface UsageData {
   credits: number;
@@ -46,4 +46,5 @@ export interface UserData {
   // This mirrors the structure from langcampus-exchange's useAuth
   stripeId?: string;
   stripeRole?: string;
+  isAdmin?: boolean;
 }

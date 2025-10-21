@@ -210,7 +210,7 @@ const AppContent: React.FC = () => {
     setIsCancelling(true);
     
     try {
-      const createPortalLink = httpsCallable(functions, 'createStripePortalLink');
+      const createPortalLink = httpsCallable(functions, 'ext-firestore-stripe-payments-createPortalLink');
       const { data } = await createPortalLink({ returnUrl: window.location.origin });
       window.location.assign((data as any).url);
     } catch (error) {

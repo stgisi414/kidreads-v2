@@ -387,8 +387,18 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   // --- ADDED: Credit cost and display logic ---
   const currentCost = creditCost[storyLength];
   const getCreditDisplay = () => {
-    if (!user) return null;
-    const { credits } = user.usage;
+    // Add checks for user and user.usage
+    if (!user || !user.usage) {
+      return null; // Or return a loading state like '...'
+    }
+    // Now it's safe to destructure
+    const { credits } = user.usage; //
+    const isAdmin = user.isAdmin || user.subscription === 'admin'; //
+
+    if (isAdmin || credits === -1) {
+       return <span className="font-bold text-red-600">Unlimited</span>;
+    }
+
     return (
       <span className={`font-bold ${credits < currentCost ? 'text-red-500' : 'text-blue-600'}`}>
         {credits}
