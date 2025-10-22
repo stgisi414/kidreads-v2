@@ -29,8 +29,8 @@ type HomeScreenProps = {
   setError: (error: string | null) => void;
   // --- ADDED ---
   onUpgradeClick: () => void;
-  onCancelSubscription: () => void;
-  isCancelling: boolean;
+  onManageSubscription: () => void;
+  isManagingSubscription: boolean;
   // --- END ADDED ---
 };
 
@@ -54,8 +54,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
   setError,
   // --- ADDED ---
   onUpgradeClick,
-  onCancelSubscription,
-  isCancelling
+  onManageSubscription,
+  isManagingSubscription,
   // --- END ADDED ---
 }) => {
   const { recorderState, startRecording, stopRecording, permissionError } = useAudioRecorder();
@@ -405,8 +405,8 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
             <UserProfile
               user={user}
               onUpgradeClick={onUpgradeClick}
-              onCancelSubscription={onCancelSubscription}
-              isCancelling={isCancelling}
+              onManageSubscription={onManageSubscription}
+              isManagingSubscription={isManagingSubscription}
             />
           ) : (
             <button

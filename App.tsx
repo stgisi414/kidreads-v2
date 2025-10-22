@@ -64,7 +64,7 @@ const AppContent: React.FC = () => {
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [subscriptionModalReason, setSubscriptionModalReason] = useState<"limit" | "manual">("limit");
   const [isUpgrading, setIsUpgrading] = useState(false);
-  const [isCancelling, setIsCancelling] = useState(false);
+  const [isManagingSubscription, setIsManagingSubscription] = useState(false);
 
   useEffect(() => {
     if (window.location.pathname.startsWith('/story/')) {
@@ -188,36 +188,41 @@ const AppContent: React.FC = () => {
     setScreen("story");
   }, []);
 
+  // Keep handleUpgrade for the *first* purchase (Free/Student -> Paid)
   const handleUpgrade = async (priceId: string) => {
     if (!user) return;
+    // Check if user already has an active NON-CLASSROOM subscription before creating a new one?
+    // This check might be complex depending on how useAuth reports status during transitions.
+    // For now, we assume this is only called by Free/Student users.
     setIsUpgrading(true);
     try {
       const session = await createCheckoutSession(payments, {
         price: priceId,
         success_url: `${window.location.origin}?checkout_success=true`,
         cancel_url: window.location.origin,
+        // Ensure customer ID is linked if available (extension usually handles this)
+        // customer: user.stripeId, // Usually not needed if customer exists in Firestore
       });
       window.location.assign(session.url);
-    } catch (error) {
-      console.error("Stripe Checkout Error:", error);
-      setError("Could not connect to payment gateway. Please try again.");
-      setIsUpgrading(false);
-    }
+    } catch (error) { /* ... error handling ... */ setIsUpgrading(false); }
+    // No finally setIsUpgrading(false) here because of redirect
   };
 
-  const handleCancelSubscription = async () => {
+  const handleManageSubscription = async () => {
     if (!user) return;
-    setIsCancelling(true);
-    
+    setIsManagingSubscription(true); // Use the new state variable
+
     try {
       const createPortalLink = httpsCallable(functions, 'ext-firestore-stripe-payments-createPortalLink');
       const { data } = await createPortalLink({ returnUrl: window.location.origin });
+      // Redirect the user to the Stripe Billing Portal
       window.location.assign((data as any).url);
     } catch (error) {
       console.error("Error creating portal link:", error);
       setError("Could not manage subscription. Please try again later.");
-      setIsCancelling(false);
+      setIsManagingSubscription(false); // Reset on error
     }
+    // No finally setIsManagingSubscription(false) here because of redirect
   };
 
   useEffect(() => {
@@ -248,14 +253,14 @@ const AppContent: React.FC = () => {
           storyLength={storyLength}
           onStoryLengthChange={handleStoryLengthChange}
           setError={setError}
-          // --- PASS NEW PROPS ---
           onUpgradeClick={() => {
             setSubscriptionModalReason("manual");
             setShowSubscriptionModal(true);
           }}
-          onCancelSubscription={handleCancelSubscription}
-          isCancelling={isCancelling}
-          // --- END NEW PROPS ---
+          // --- Pass the RENAMED props here ---
+          onManageSubscription={handleManageSubscription}
+          isManagingSubscription={isManagingSubscription}
+          // --- END ---
         />
       </ErrorBoundary>
     );
@@ -285,6 +290,7 @@ const AppContent: React.FC = () => {
       {/* --- ADDED MODAL --- */}
       {showSubscriptionModal && (
         <SubscriptionModal
+          user={user}
           onClose={() => setShowSubscriptionModal(false)}
           onSubscribe={handleUpgrade}
           reason={subscriptionModalReason}

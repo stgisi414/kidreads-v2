@@ -16,8 +16,8 @@ const MAX_STUDENTS = 20;
 interface UserProfileProps {
   user: UserData;
   onUpgradeClick: () => void;
-  onCancelSubscription: () => void;
-  isCancelling: boolean;
+  onManageSubscription: () => void;
+  isManagingSubscription: boolean;
 }
 
 // --- MODIFY getSubscriptionDetails ---
@@ -64,8 +64,8 @@ const getInitialsPlaceholder = (name: string | null | undefined) => { //
 const UserProfile: React.FC<UserProfileProps> = ({
   user,
   onUpgradeClick,
-  onCancelSubscription,
-  isCancelling,
+  onManageSubscription,
+  isManagingSubscription,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const { name, maxCredits, color } = getSubscriptionDetails(user);
@@ -250,7 +250,7 @@ const UserProfile: React.FC<UserProfileProps> = ({
               </div>
 
               {/* --- ADDITIONS START: Classroom Management Section --- */}
-              {user.subscription === 'classroom' && !isAdmin && (
+              {isClassroomTeacher && (
                 <div className="border-t pt-4">
                   <h3 className="text-lg font-semibold text-gray-700 mb-3">Manage Classroom</h3>
 
@@ -304,27 +304,50 @@ const UserProfile: React.FC<UserProfileProps> = ({
             </div>
 
             <div className="flex justify-between items-center p-4 border-t">
-               <button onClick={logout} className="px-4 py-2 bg-gray-500 text-white font-bold rounded-lg hover:bg-gray-600 text-sm">
+              <button onClick={logout} className="px-4 py-2 bg-gray-500 text-white font-bold rounded-lg hover:bg-gray-600 text-sm">
                 Sign Out
               </button>
-              {/* --- MODIFY Button Logic --- */}
-              {/* Show upgrade if free OR admin (admins don't need to manage) */}
-              {(user.subscription === "free" || isAdmin) ? (
-                // If admin, show disabled Upgrade button or hide it. Here, we disable it.
-                <button
-                    onClick={onUpgradeClick}
-                    disabled={isAdmin}
-                    className={`px-4 py-2 bg-green-500 text-white font-bold rounded-lg hover:bg-green-600 text-sm ${isAdmin ? 'opacity-50 cursor-not-allowed' : ''}`}
-                >
-                    Upgrade
-                </button>
-              ) : (
-                // Only show Manage Plan if they have a paid (non-admin) subscription
-                <button onClick={onCancelSubscription} className="px-4 py-2 bg-red-500 text-white font-bold rounded-lg hover:bg-red-600 text-sm" disabled={isCancelling}>
-                  {isCancelling ? "Loading..." : "Manage Plan"}
-                </button>
-              )}
-              {/* --- END MODIFY --- */}
+
+              {/* --- REPLACE THE EXISTING BUTTON LOGIC with this --- */}
+              <div className="flex gap-2"> {/* Added a div to group buttons if needed */}
+                {isAdmin ? (
+                  // Admins see a disabled Upgrade button
+                  <button
+                      disabled={true}
+                      className="px-4 py-2 bg-green-500 text-white font-bold rounded-lg text-sm opacity-50 cursor-not-allowed"
+                  >
+                      Upgrade
+                  </button>
+                ) : (user.subscription === "free" || (user.subscription === "classroom" && !isClassroomTeacher)) ? (
+                  // Free users and Students see the Upgrade button (triggers modal)
+                  <button
+                      onClick={onUpgradeClick}
+                      className="px-4 py-2 bg-green-500 text-white font-bold rounded-lg hover:bg-green-600 text-sm"
+                  >
+                      Upgrade Plan
+                  </button>
+                ) : (
+                  // Existing paid subscribers (Lite, Max, Teacher)
+                  <>
+                    {/* "Change Plan" now ALSO goes directly to Stripe Portal */}
+                    <button
+                      onClick={onManageSubscription} // Use the portal link function
+                      className="px-4 py-2 bg-blue-500 text-white font-bold rounded-lg hover:bg-blue-600 text-sm"
+                      disabled={isManagingSubscription} // Use renamed state
+                    >
+                      {isManagingSubscription ? "Loading..." : "Change Plan"}
+                    </button>
+                    {/* "Manage Billing" still goes to Stripe Portal */}
+                    <button
+                      onClick={onManageSubscription} // Use the portal link function
+                      className="px-4 py-2 bg-red-500 text-white font-bold rounded-lg hover:bg-red-600 text-sm"
+                      disabled={isManagingSubscription} // Use renamed state
+                    >
+                      {isManagingSubscription ? "Loading..." : "Manage Billing"}
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>

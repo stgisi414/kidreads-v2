@@ -1,5 +1,5 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
-import { onDocumentDeleted, onDocumentWritten, Change, FirestoreEvent } from "firebase-functions/v2/firestore"; // <-- Added onDocumentWritten, Change, FirestoreEvent
+import { onDocumentDeleted, onDocumentWritten, Change, FirestoreEvent } from "firebase-functions/v2/firestore";
 import * as logger from "firebase-functions/logger";
 import { SpeechClient } from "@google-cloud/speech";
 import { TextToSpeechClient } from "@google-cloud/text-to-speech";
@@ -9,8 +9,42 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   getFirestore,
   Timestamp,
-  DocumentSnapshot
+  DocumentSnapshot,
+  FieldValue,
 } from "firebase-admin/firestore";
+
+interface UserData {
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+  subscription: SubscriptionStatus;
+  usage?: UsageData;
+  isAdmin?: boolean;
+  stripeId?: string;
+  stripeRole?: string;
+  // Usage data specific to classroom members, stored on the TEACHER's user document
+  classroomUsage?: {
+    teacher?: UsageData;
+    students?: {
+      [studentUid: string]: UsageData;
+    };
+  };
+  preferences?: {
+     voice?: string;
+     speakingRate?: number;
+     storyLength?: number;
+  };
+  createdAt?: any;
+  memberOfClassroom?: string | null; // <-- ADD THIS FIELD (teacher's UID or null)
+}
+
+type SubscriptionStatus = "free" | "lite" | "max" | "inactive" | "admin" | "classroom";
+
+interface UsageData {
+  credits: number;
+  lastReset: number; // Timestamp
+}
 
 // Initialize the Admin SDK
 initializeApp();
@@ -710,108 +744,217 @@ export const getPlaceAutocomplete = onCall(
 export const onSubscriptionUpdate = onDocumentWritten(
   "customers/{userId}/subscriptions/{subscriptionId}",
   async (event: FirestoreEvent<Change<DocumentSnapshot> | undefined, { userId: string; subscriptionId: string }>) => {
-    // Check if the subscription document was created or updated (not deleted)
-    if (!event.data?.after.exists) {
-      logger.info(`Subscription ${event.params.subscriptionId} for user ${event.params.userId} deleted.`);
-      // Optionally handle deletion cleanup if needed
-      return;
+    const userId = event.params.userId; // This is the user whose subscription changed
+    const userDocRef = adminDb.collection("users").doc(userId);
+    let beforeData: DocumentSnapshot | null = null;
+    let afterData: DocumentSnapshot | null = null;
+
+    if (event.data?.before.exists) {
+        beforeData = event.data.before;
+    }
+    if (event.data?.after.exists) {
+        afterData = event.data.after;
     }
 
-    const subData = event.data.after.data();
-    const userId = event.params.userId;
+    if (!afterData && !beforeData) {
+      logger.info(`Subscription ${event.params.subscriptionId} for user ${userId} event had no data.`);
+      return; // Should not happen with onWritten, but good practice
+    }
 
-    logger.info(`Subscription ${event.params.subscriptionId} for user ${userId} written. Status: ${subData?.status}`);
+    const subDataAfter = afterData?.data(); // Data after the change
+    const subDataBefore = beforeData?.data(); // Data before the change (if it existed)
 
-    // Check if it's an active subscription and has the classroom role
-    const isActive = subData?.status === "active" || subData?.status === "trialing";
-    // Check metadata first, then the top-level role
-    const role = subData?.items?.[0]?.price?.product?.metadata?.stripeRole ?? subData?.role;
+    const isActiveAfter = subDataAfter?.status === "active" || subDataAfter?.status === "trialing";
+    const roleAfter = subDataAfter?.items?.[0]?.price?.product?.metadata?.stripeRole ?? subDataAfter?.role;
 
-    logger.info(`Detected Role: ${role}, IsActive: ${isActive}`);
+    // Determine the role *before* this change, if the document existed before
+    const roleBefore = subDataBefore?.items?.[0]?.price?.product?.metadata?.stripeRole ?? subDataBefore?.role;
+
+    logger.info(`Subscription update for user ${userId}. Status: ${subDataAfter?.status}, Role Before: ${roleBefore}, Role After: ${roleAfter}`);
 
 
-    if (isActive && role === "classroom") {
-      const classroomDocRef = adminDb.collection("classrooms").doc(userId);
-      const userDocRef = adminDb.collection("users").doc(userId);
+    // --- Scenario 1: User (potentially a student) buys a PERSONAL plan ---
+    if (isActiveAfter && (roleAfter === 'max' || roleAfter === 'lite')) {
+      const userDoc = await userDocRef.get();
+      // Check if this user was a member of a classroom *before* this update
+      if (userDoc.exists && userDoc.data()?.memberOfClassroom) {
+        const teacherUid = userDoc.data()?.memberOfClassroom;
+        const studentEmail = userDoc.data()?.email;
 
+        logger.info(`User ${userId} (${studentEmail}) subscribed to '${roleAfter}' and was a student of teacher ${teacherUid}. Removing from old classroom.`);
+
+        if (!teacherUid || !studentEmail) {
+          logger.error(`Missing teacherUid or studentEmail for student ${userId} during auto-removal after upgrade.`);
+          // Still try to clear the student's link
+          try { await userDocRef.update({ memberOfClassroom: null }); } catch(e) { logger.error("Error clearing memberOfClassroom after upgrade", e); }
+          return; // Exit after handling this scenario
+        }
+
+        const classroomDocRef = adminDb.collection("classrooms").doc(teacherUid);
+        const teacherUserDocRef = adminDb.collection("users").doc(teacherUid);
+        const batch = adminDb.batch(); // Use adminDb.batch()
+
+        // 1. Remove email from classroom 'students' array
+        batch.update(classroomDocRef, { students: FieldValue.arrayRemove(studentEmail), updatedAt: Timestamp.now() });
+        // 2. Remove student from teacher's 'classroomUsage' map
+        batch.update(teacherUserDocRef, { [`classroomUsage.students.${userId}`]: FieldValue.delete() });
+        // 3. Remove classroom link from student's document
+        batch.update(userDocRef, { memberOfClassroom: null });
+
+        try {
+          await batch.commit();
+          logger.info(`Successfully removed student ${userId} from classroom ${teacherUid} after they upgraded their plan.`);
+        } catch (commitError) {
+           logger.error(`Batch commit failed removing student ${userId} from classroom ${teacherUid}:`, commitError);
+           // Attempt to at least clear the student link if batch failed
+           try { await userDocRef.update({ memberOfClassroom: null }); } catch(e) { logger.error("Error clearing memberOfClassroom after failed batch commit", e); }
+        }
+        return; // Important: Exit after handling this scenario
+      }
+    }
+
+    // --- Scenario 2: Teacher subscribes/renews CLASSROOM plan ---
+    if (isActiveAfter && roleAfter === "classroom") {
+      const classroomDocRef = adminDb.collection("classrooms").doc(userId); // userId is the teacher's UID here
       try {
         const classroomDoc = await classroomDocRef.get();
-        const userDoc = await userDocRef.get();
+        const userDoc = await userDocRef.get(); // Teacher's user doc
         const userData = userDoc.data();
 
         if (!classroomDoc.exists) {
           logger.info(`Creating classroom document for teacher ${userId}.`);
           await classroomDocRef.set({
             teacherUid: userId,
-            teacherEmail: userData?.email || "Unknown", // Get email from user doc
-            subscriptionStatus: subData.status,
+            teacherEmail: userData?.email || "Unknown",
+            subscriptionStatus: subDataAfter.status,
             stripeSubscriptionId: event.params.subscriptionId,
-            students: [], // Initialize with empty array
+            students: [],
             createdAt: Timestamp.now(),
             updatedAt: Timestamp.now(),
           });
           logger.info(`Classroom document created for ${userId}.`);
 
-          // Also ensure the user's main doc reflects classroom status & initializes teacher usage
           logger.info(`Updating user document ${userId} for classroom setup.`);
           await userDocRef.set({
-              subscription: 'classroom', // Update subscription status on user doc
-              stripeRole: 'classroom', // Store the role too
-              // Initialize teacher usage credits within classroomUsage
+              subscription: 'classroom',
+              stripeRole: 'classroom',
               classroomUsage: {
-                 teacher: {
-                     credits: 30, // Teacher credit limit
-                     lastReset: Date.now()
-                 },
-                 students: {} // Initialize empty students map
+                 teacher: { credits: 30, lastReset: Date.now() },
+                 students: {}
               },
-              usage: null // Clear or nullify individual usage if desired
-          }, { merge: true }); // Merge to avoid overwriting other fields
+              usage: FieldValue.delete() // Remove individual usage if switching to classroom
+          }, { merge: true });
            logger.info(`User document ${userId} updated for classroom role and usage.`);
 
-
-        } else {
-          // Classroom exists, maybe just update status if needed
-           logger.info(`Classroom document for ${userId} already exists. Updating status if necessary.`);
-          if (classroomDoc.data()?.subscriptionStatus !== subData.status) {
-              await classroomDocRef.update({
-                  subscriptionStatus: subData.status,
-                  stripeSubscriptionId: event.params.subscriptionId, // Update potentially changed sub ID
-                  updatedAt: Timestamp.now(),
-              });
-              logger.info(`Updated classroom status for ${userId} to ${subData.status}.`);
-
-              // Ensure user doc reflects active classroom status too
-              await userDocRef.set({
-                 subscription: 'classroom',
-                 stripeRole: 'classroom',
-              }, { merge: true });
-              logger.info(`Ensured user doc ${userId} has classroom subscription status.`);
-          }
+        } else if (classroomDoc.data()?.subscriptionStatus !== subDataAfter.status) {
+            // Classroom exists, update status (e.g., if it reactivated)
+           logger.info(`Classroom for ${userId} already exists. Updating status to ${subDataAfter.status}.`);
+           await classroomDocRef.update({
+               subscriptionStatus: subDataAfter.status,
+               stripeSubscriptionId: event.params.subscriptionId,
+               updatedAt: Timestamp.now(),
+           });
+           await userDocRef.set({
+              subscription: 'classroom',
+              stripeRole: 'classroom',
+              // Re-initialize classroomUsage if it was somehow cleared
+              classroomUsage: classroomDoc.data()?.classroomUsage || { teacher: { credits: 30, lastReset: Date.now() }, students: {} }
+           }, { merge: true });
+           logger.info(`Updated classroom and user status for ${userId}.`);
         }
       } catch (error) {
-        logger.error(`Error processing classroom subscription for user ${userId}:`, error);
+        logger.error(`Error processing active classroom subscription for user ${userId}:`, error);
       }
-    } else if (!isActive && role === "classroom") {
-        // Handle inactive/cancelled classroom subscription
-        const classroomDocRef = adminDb.collection("classrooms").doc(userId);
-         const userDocRef = adminDb.collection("users").doc(userId);
-         logger.info(`Classroom subscription for ${userId} is now inactive (Status: ${subData?.status}). Updating status.`);
-         try {
-             await classroomDocRef.update({
-                 subscriptionStatus: subData?.status || 'inactive', // Use Stripe status or default
-                 updatedAt: Timestamp.now(),
-             });
-              // Optionally revert user doc subscription status if they have no other active plan
-             await userDocRef.set({
-                 subscription: 'free', // Revert to free or check for other plans
-                 stripeRole: null,
-                 classroomUsage: null // Clear classroom usage
-             }, { merge: true });
-             logger.info(`Updated classroom and user docs for inactive classroom subscription ${userId}.`);
-         } catch(error) {
-             logger.error(`Error updating status for inactive classroom subscription ${userId}:`, error);
-         }
+      return; // Exit after handling this scenario
     }
+
+    // --- Scenario 3: Teacher's CLASSROOM plan becomes INACTIVE (Cancelled, Downgraded, Failed Payment) ---
+    // Check if the role *before* was 'classroom' and the subscription is *no longer* active OR the role *after* is NOT 'classroom' anymore
+    if (roleBefore === "classroom" && (!isActiveAfter || roleAfter !== "classroom")) {
+        const teacherUid = userId; // In this context, userId is the teacher's UID
+        const classroomDocRef = adminDb.collection("classrooms").doc(teacherUid);
+        const teacherUserDocRef = adminDb.collection("users").doc(teacherUid);
+
+        logger.info(`Classroom subscription for teacher ${teacherUid} ending (Status: ${subDataAfter?.status}, New Role: ${roleAfter}). Disbanding classroom.`);
+
+        try {
+            const teacherDoc = await teacherUserDocRef.get();
+            const classroomDoc = await classroomDocRef.get(); // Get classroom doc for student list if needed
+
+            if (!teacherDoc.exists) {
+                logger.error(`Teacher user document ${teacherUid} not found during classroom disbanding.`);
+                return;
+            }
+
+            // ***** USE IMPORTED UserData TYPE HERE *****
+            const teacherData = teacherDoc.data() as UserData;
+            // Get student UIDs from the teacher's classroomUsage map
+            const studentUids = teacherData.classroomUsage?.students ? Object.keys(teacherData.classroomUsage.students) : [];
+
+            const batch = adminDb.batch(); // Use adminDb.batch()
+
+            // 1. Update the classroom document status to inactive (or delete it)
+            if (classroomDoc.exists) {
+                batch.update(classroomDocRef, {
+                    subscriptionStatus: subDataAfter?.status || 'inactive', // Reflect final Stripe status
+                    updatedAt: Timestamp.now(),
+                    // Optionally clear students array: students: []
+                });
+            }
+
+            // 2. Clear classroom data on the teacher's user document
+            batch.update(teacherUserDocRef, {
+                classroomUsage: FieldValue.delete(), // Remove the whole map
+                // Don't set subscription to 'free' yet, let useAuth handle it based on the *new* active sub (if any)
+                stripeRole: roleAfter // Update to the new role if they downgraded, or null if cancelled
+            });
+
+            // 3. Update each student's document
+            if (studentUids.length > 0) {
+                logger.info(`Removing ${studentUids.length} students from classroom ${teacherUid}.`);
+                studentUids.forEach(studentUid => {
+                    const studentDocRef = adminDb.collection("users").doc(studentUid);
+                    // Set memberOfClassroom to null. useAuth will handle recalculating their status.
+                    batch.update(studentDocRef, { memberOfClassroom: null });
+                });
+            } else {
+                 logger.info(`No students found in teacher ${teacherUid}'s classroomUsage to remove.`);
+            }
+
+            await batch.commit();
+            logger.info(`Successfully disbanded classroom for teacher ${teacherUid}.`);
+
+        } catch (error) {
+            logger.error(`Error disbanding classroom for teacher ${teacherUid}:`, error);
+        }
+        return; // Exit after handling this scenario
+    }
+
+    // --- Optional Scenario 4: Handle other inactive subscriptions (Lite, Max) ---
+    // If a Lite or Max subscription becomes inactive, you might want to revert the user to 'free'.
+    // However, the useAuth hook likely handles this already by falling back to 'free' when no active subscription is found.
+    // You could add explicit logic here if needed:
+    /*
+    if (!isActiveAfter && (roleBefore === 'lite' || roleBefore === 'max')) {
+        logger.info(`Personal subscription '${roleBefore}' ended for user ${userId}.`);
+        try {
+            // Check if they might *still* be a student in a classroom
+            const userDoc = await userDocRef.get();
+            if (!userDoc.data()?.memberOfClassroom) {
+                 await userDocRef.update({
+                     subscription: 'free',
+                     stripeRole: null,
+                     // Reset usage? Depends on your desired behavior
+                     // usage: { credits: 5, lastReset: Date.now() }
+                 });
+                 logger.info(`Reverted user ${userId} to 'free' tier.`);
+            } else {
+                 logger.info(`User ${userId} still part of a classroom, not reverting to free.`);
+            }
+        } catch (error) {
+            logger.error(`Error updating user ${userId} after personal subscription ended:`, error);
+        }
+    }
+    */
   }
 );
