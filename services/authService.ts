@@ -9,7 +9,7 @@ const provider = new GoogleAuthProvider();
 
 // --- ADD THIS: List of admin emails ---
 const ADMIN_EMAILS = [
-  //"stefdgisi@gmail.com"
+  "stefdgisi@gmail.com"
   // Add any other admin emails here
 ];
 // --- END ADD ---

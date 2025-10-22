@@ -329,18 +329,10 @@ const UserProfile: React.FC<UserProfileProps> = ({
                 ) : (
                   // Existing paid subscribers (Lite, Max, Teacher)
                   <>
-                    {/* "Change Plan" now ALSO goes directly to Stripe Portal */}
+                    {/* ONLY keep the "Manage Billing" button, which directs to the portal */}
                     <button
                       onClick={onManageSubscription} // Use the portal link function
                       className="px-4 py-2 bg-blue-500 text-white font-bold rounded-lg hover:bg-blue-600 text-sm"
-                      disabled={isManagingSubscription} // Use renamed state
-                    >
-                      {isManagingSubscription ? "Loading..." : "Change Plan"}
-                    </button>
-                    {/* "Manage Billing" still goes to Stripe Portal */}
-                    <button
-                      onClick={onManageSubscription} // Use the portal link function
-                      className="px-4 py-2 bg-red-500 text-white font-bold rounded-lg hover:bg-red-600 text-sm"
                       disabled={isManagingSubscription} // Use renamed state
                     >
                       {isManagingSubscription ? "Loading..." : "Manage Billing"}

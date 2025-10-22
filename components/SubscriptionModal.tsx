@@ -21,9 +21,10 @@ const SubscriptionModal: React.FC<SubscriptionModalProps> = ({ onClose, onSubscr
   const isTeacher = user?.subscription === 'classroom' && !!user?.classroomUsage?.teacher;
 
   // Define Price IDs
-  const LITE_PRICE_ID = "price_1SKsbGGYNyUbUaQ6mvtfhQOz";
-  const MAX_PRICE_ID = "price_1SKsbeGYNyUbUaQ6dj929NnQ";
-  const CLASSROOM_PRICE_ID = "price_1SKsc1GYNyUbUaQ6B76P6UTv";
+  // !!! UPDATE THESE WITH YOUR LIVE STRIPE PRICE IDS !!!
+  const LITE_PRICE_ID = "price_1SKuay6Ucsx3UHI5i7d7xDFS"; // Was "price_1SKsbGGYNyUbUaQ6mvtfhQOz";
+  const MAX_PRICE_ID = "price_1SKuas6Ucsx3UHI5xkTzMnvT"; // Was "price_1SKsbeGYNyUbUaQ6dj929NnQ";
+  const CLASSROOM_PRICE_ID = "price_1SKuap6Ucsx3UHI5ZxGMlZzk"; // Was "price_1SKsc1GYNyUbUaQ6B76P6UTv";
 
   // --- Determine if plans should be disabled ---
   const isLiteDisabled = isStudent || currentUserSubscription === 'lite';

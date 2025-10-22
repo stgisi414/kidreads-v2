@@ -84,7 +84,8 @@ export const useAuth = () => {
 
     let finalState: UserData = { ...baseAuthData };
 
-    // Apply data from user's own document
+    // --- Base Layer: Apply data from user's own document ---
+    // This is the source of truth for current credit counts and preferences.
     if (userDataFromDoc.current) {
         finalState = {
             ...finalState,
@@ -92,6 +93,8 @@ export const useAuth = () => {
             displayName: userDataFromDoc.current.displayName ?? finalState.displayName,
             photoURL: userDataFromDoc.current.photoURL ?? finalState.photoURL,
             memberOfClassroom: userDataFromDoc.current.memberOfClassroom,
+            usage: userDataFromDoc.current.usage ?? finalState.usage, // CRITICAL: Prioritize userDoc usage
+            classroomUsage: userDataFromDoc.current.classroomUsage ?? finalState.classroomUsage, // CRITICAL: Prioritize userDoc classroomUsage
          };
     }
 
@@ -102,8 +105,8 @@ export const useAuth = () => {
 
     // --- Determine Final Status Based on Priority ---
     let finalSubscription: SubscriptionStatus = userDataFromDoc.current?.subscription || baseAuthData.subscription;
-    let finalUsage: UsageData | undefined = userDataFromDoc.current?.usage || baseAuthData.usage;
-    let finalClassroomUsage: UserData['classroomUsage'] | undefined = userDataFromDoc.current?.classroomUsage;
+    let finalUsage: UserData['usage'] = finalState.usage;
+    let finalClassroomUsage: UserData['classroomUsage'] = finalState.classroomUsage;
     let finalStripeRole: string | undefined = userDataFromDoc.current?.stripeRole;
     let finalIsAdmin = userDataFromDoc.current?.isAdmin || false;
 
@@ -129,8 +132,13 @@ export const useAuth = () => {
         console.log("   updateUserState: Priority 3: Stripe details applied.");
         finalSubscription = stripeSubDetails.current.status;
         finalStripeRole = stripeSubDetails.current.role;
-        finalUsage = stripeSubDetails.current.usage;
-        finalClassroomUsage = stripeSubDetails.current.classroomUsage;
+        // =========================================================================================
+        // === THE FIX: Do NOT overwrite existing usage data with undefined from the Stripe listener. ===
+        // The userDoc is the source of truth for the current credit COUNT. We only take the
+        // Stripe value if it's explicitly provided (which it isn't in your current logic).
+        finalUsage = stripeSubDetails.current.usage ?? finalUsage;
+        finalClassroomUsage = stripeSubDetails.current.classroomUsage ?? finalClassroomUsage;
+        // =========================================================================================
     }
     // Priority 4: Fallback to defaults
     else {
@@ -153,8 +161,9 @@ export const useAuth = () => {
        setLoading(false);
        if (loadingTimeoutRef.current) clearTimeout(loadingTimeoutRef.current);
     }
-  }, []); // Empty dependency array makes this function stable
+  }, [loading]); // Added `loading` to dependencies to re-evaluate on loading change
 
+  // ... (The rest of the useEffect hook remains unchanged)
   useEffect(() => {
     console.log("%cuseAuth: Main effect setup (runs once).", "color: orange;");
 
@@ -271,57 +280,30 @@ export const useAuth = () => {
 
       const stripeSubPromise = new Promise<void>(resolve => {
         subscriptionUnsubscribeRef.current = onCurrentUserSubscriptionUpdate(payments, async (snapshot) => {
-             console.log("%c>>> Stripe Subscription Snapshot received.", "color: purple;");
-             stripeSubDetails.current = null; // Reset for recalculation
-
              let subStatus: SubscriptionStatus = 'free';
              let subRole: string | undefined = undefined;
-             let subUsage: UsageData | undefined = undefined;
-             let subClassroomUsage: UserData['classroomUsage'] = undefined;
-             const previousSub = userDataFromDoc.current?.subscription;
 
-             if (snapshot && Array.isArray(snapshot.subscriptions) && snapshot.subscriptions.length > 0) {
-                 const sortedSubs = snapshot.subscriptions.sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime());
-                 const newestActiveSub = sortedSubs.find(sub => sub && ['active', 'trialing'].includes(sub.status));
+             if (snapshot?.subscriptions?.length > 0) {
+                 const sortedSubs = [...snapshot.subscriptions].sort((a, b) => new Date(b.created).getTime() - new Date(a.created).getTime());
+                 const newestActiveSub = sortedSubs.find(sub => ['active', 'trialing'].includes(sub.status));
 
                  if (newestActiveSub) {
-                      let fetchedRole: string | undefined;
                       try {
-                          const subDocRef = doc(db, 'customers', userId, 'subscriptions', newestActiveSub.id);
-                          const subDocSnap = await getDoc(subDocRef);
-                           if (subDocSnap.exists()) {
-                                const subData = subDocSnap.data();
-                                const roleFromMetadata = subData?.items?.[0]?.price?.product?.metadata?.stripeRole;
-                                fetchedRole = (roleFromMetadata as string | undefined) ?? subData?.role;
-                            }
+                          const subDocSnap = await getDoc(doc(db, 'customers', userId, 'subscriptions', newestActiveSub.id));
+                          if (subDocSnap.exists()) {
+                              const subData = subDocSnap.data();
+                              const roleFromMetadata = subData?.items?.[0]?.price?.product?.metadata?.stripeRole;
+                              subRole = (roleFromMetadata as string | undefined) ?? subData?.role;
+                              subStatus = getSubscriptionStatus(subRole);
+                          }
                       } catch (err) { console.error("Error fetching sub doc:", err); }
-
-                      subRole = fetchedRole;
-                      subStatus = getSubscriptionStatus(subRole);
-                      const isTeacher = subStatus === 'classroom';
-                      const newMaxCredits = getCreditsForSubscription(subStatus, isTeacher);
-                      subUsage = { credits: newMaxCredits, lastReset: Date.now() };
-
-                      if (isTeacher) {
-                          subClassroomUsage = { teacher: subUsage, students: userDataFromDoc.current?.classroomUsage?.students || {} };
-                          subUsage = undefined;
-                      } else {
-                           subClassroomUsage = undefined;
-                      }
-                 } else { // No active sub
-                      if (previousSub && previousSub !== 'free' && previousSub !== 'admin') {
-                          await updateUserUsage(userId, defaultUsage);
-                      }
-                      subUsage = defaultUsage;
                  }
-             } else { // No subs array
-                  if (previousSub && previousSub !== 'free' && previousSub !== 'admin') {
-                      await updateUserUsage(userId, defaultUsage);
-                  }
-                  subUsage = defaultUsage;
+                 // NO "ELSE" BLOCK. If there's no active subscription, we do nothing.
+                 // We DO NOT reset credits here. That was the bug.
              }
-             stripeSubDetails.current = { status: subStatus, role: subRole, usage: subUsage, classroomUsage: subClassroomUsage };
-             console.log("      Stripe details stored:", stripeSubDetails.current);
+             
+             // This listener is now READ-ONLY. It only sets status and role.
+             stripeSubDetails.current = { status: subStatus, role: subRole };
 
              if (!initialFetchComplete.current) resolve();
              updateUserState(baseAuthData);
