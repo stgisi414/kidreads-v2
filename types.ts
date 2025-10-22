@@ -42,10 +42,10 @@ export interface UserData {
   displayName: string | null;
   photoURL: string | null;
   subscription: SubscriptionStatus;
-  usage?: UsageData; // Individual usage might be undefined/unused if classroom applies
+  usage?: UsageData;
   isAdmin?: boolean;
   stripeId?: string;
-  stripeRole?: string; // This might be 'classroom'
+  stripeRole?: string;
   // Usage data specific to classroom members, stored on the TEACHER's user document
   classroomUsage?: {
     teacher?: UsageData;
@@ -53,12 +53,13 @@ export interface UserData {
       [studentUid: string]: UsageData;
     };
   };
-  preferences?: { // Added preferences structure
+  preferences?: {
      voice?: string;
      speakingRate?: number;
      storyLength?: number;
   };
-  createdAt?: any; // Added createdAt from authService
+  createdAt?: any;
+  memberOfClassroom?: string | null; // <-- ADD THIS FIELD (teacher's UID or null)
 }
 
 // Interface for Classroom document

@@ -71,10 +71,13 @@ const UserProfile: React.FC<UserProfileProps> = ({
   const { name, maxCredits, color } = getSubscriptionDetails(user);
   const isAdmin = user.isAdmin || user.subscription === 'admin';
   // Use teacher credits if classroomUsage.teacher exists, otherwise individual usage
-  const displayCredits = user.classroomUsage?.teacher?.credits ?? user.usage?.credits ?? 0; // <-- MODIFIED for teacher credits
-  const creditLimit = user.subscription === 'classroom'
-      ? getCreditsForSubscription('classroom', true) // Teacher limit
-      : maxCredits; // Use limit derived from getSubscriptionDetails for others
+  // If it's a teacher, use classroomUsage.teacher.credits.
+  // Otherwise (student, free, lite, max, admin), use user.usage.credits.
+  const isClassroomTeacher = user.subscription === 'classroom' && !!user.classroomUsage?.teacher;
+  const displayCredits = isClassroomTeacher
+      ? (user.classroomUsage?.teacher?.credits ?? 0) // Use teacher credits if available
+      : (user.usage?.credits ?? 0);
+  const creditLimit = maxCredits;
   const percentage = creditLimit > 0 && creditLimit !== Infinity ? (displayCredits / creditLimit) * 100 : (displayCredits === -1 ? 100 : 0); // Handle teacher/admin Infinity/-1
 
   const isPlaceholderUrl = user.photoURL === "https://lh3.googleusercontent.com/a/ACg8ocIXMPVF4sbANVCxU5xZhZGtAsRFe5tDEvTCtdow1epo3YQJKA=s96-c";
@@ -222,20 +225,21 @@ const UserProfile: React.FC<UserProfileProps> = ({
                 <p className={`text-lg font-semibold ${color}`}>{name}</p>
               </div>
 
+              {/* Credits Section - Uses the corrected displayCredits and creditLimit */}
               <div className="border-t pt-4">
                 <h3 className="text-sm font-medium text-gray-500">Today's Credits</h3>
-                {isAdmin || displayCredits === -1 ? ( // Check displayCredits for -1 as well
+                {isAdmin || displayCredits === -1 ? ( // Check displayCredits for -1 (admin or potentially unlimited teacher)
                    <p className="text-2xl font-bold text-red-600">Unlimited</p>
                 ) : (
                   <>
                     <p className="text-2xl font-bold text-slate-800">
-                      {/* Use displayCredits here */}
+                      {/* Use corrected displayCredits and creditLimit */}
                       {displayCredits} / {creditLimit}
                     </p>
                     <div className="w-full bg-gray-200 rounded-full h-2.5 mt-2">
                       <div
                         className="bg-blue-500 h-2.5 rounded-full"
-                        // Use calculated percentage
+                        // Use corrected percentage
                         style={{ width: `${percentage}%` }}
                       ></div>
                     </div>

@@ -2,10 +2,10 @@
 
 import {
   collection, doc, getDocs, setDoc, deleteDoc, query, orderBy, getDoc, runTransaction, Timestamp, updateDoc,
-  where, limit, arrayUnion, arrayRemove
+  where, limit, arrayUnion, arrayRemove, writeBatch
 } from "firebase/firestore";
 import { db } from "../firebase";
-import type { Story, SubscriptionStatus, UserData, UsageData } from '../types';
+import type { Story, SubscriptionStatus, UserData, UsageData, ClassroomData } from '../types';
 
 const STORIES_COLLECTION = 'stories';
 const USERS_COLLECTION = 'users';
@@ -111,10 +111,9 @@ export const addStudentToClassroom = async (teacherUid: string, studentEmail: st
   }
 
   const classroomDocRef = doc(db, CLASSROOMS_COLLECTION, teacherUid);
-  const teacherUserDocRef = doc(db, USERS_COLLECTION, teacherUid); // Ref for teacher's usage data
+  const teacherUserDocRef = doc(db, USERS_COLLECTION, teacherUid);
 
   try {
-    let currentStudentCount = 0;
     const classroomDoc = await getDoc(classroomDocRef);
 
     if (!classroomDoc.exists() || classroomDoc.data()?.subscriptionStatus !== 'active') {
@@ -122,7 +121,7 @@ export const addStudentToClassroom = async (teacherUid: string, studentEmail: st
     }
 
     const classroomData = classroomDoc.data();
-    currentStudentCount = classroomData?.students?.length || 0;
+    const currentStudentCount = classroomData?.students?.length || 0;
 
     if (currentStudentCount >= MAX_STUDENTS) {
       return { success: false, message: `Cannot add more than ${MAX_STUDENTS} students.` };
@@ -132,26 +131,41 @@ export const addStudentToClassroom = async (teacherUid: string, studentEmail: st
         return { success: false, message: "Student email already exists in the classroom." };
     }
 
-    // Update the classroom document first
-    await updateDoc(classroomDocRef, {
+    const studentUid = await getUserIdByEmail(studentEmail); // Find student's UID
+
+    // Use a batch write for atomicity
+    const batch = writeBatch(db);
+
+    // Update classroom doc
+    batch.update(classroomDocRef, {
       students: arrayUnion(studentEmail),
       updatedAt: Timestamp.now()
     });
 
-    // Initialize student usage data within the *teacher's* user document
-    const studentUid = await getUserIdByEmail(studentEmail); // Helper needed to find UID by email
     if (studentUid) {
-        const studentUsagePath = `classroomUsage.students.${studentUid}`;
-        await updateDoc(teacherUserDocRef, {
-            [`${studentUsagePath}.credits`]: getCreditsForSubscription('classroom', false), // Give initial student credits
-            [`${studentUsagePath}.lastReset`]: Date.now()
-        });
-        console.log(`Initialized usage data for student ${studentUid} (${studentEmail}) under teacher ${teacherUid}`);
+      // Initialize student usage data within the *teacher's* user document
+      const studentUsagePath = `classroomUsage.students.${studentUid}`;
+      batch.update(teacherUserDocRef, {
+        [`${studentUsagePath}.credits`]: getCreditsForSubscription('classroom', false),
+        [`${studentUsagePath}.lastReset`]: Date.now()
+      });
+
+      // *** ADDED: Update the student's user document ***
+      const studentUserDocRef = doc(db, USERS_COLLECTION, studentUid);
+      batch.update(studentUserDocRef, {
+          memberOfClassroom: teacherUid,
+          // Optionally force subscription status if needed, though useAuth should handle it
+          // subscription: 'classroom'
+      });
+      // *** END ADDED ***
+
+      console.log(`Added/updated usage for student ${studentUid} (${studentEmail}) under teacher ${teacherUid} and set memberOfClassroom.`);
     } else {
-        console.warn(`Could not find UID for student email ${studentEmail}. Usage data not initialized.`);
-        // Proceed with adding email, usage will init when student logs in if needed by checkAndDecrementCredits
+        console.warn(`Could not find UID for student email ${studentEmail}. Usage data not initialized, memberOfClassroom not set.`);
+        // Note: If student doesn't exist yet, memberOfClassroom will be set when they first log in via useAuth logic later.
     }
 
+    await batch.commit(); // Commit all writes together
 
     return { success: true, message: "Student added successfully." };
   } catch (error) {
@@ -163,51 +177,48 @@ export const addStudentToClassroom = async (teacherUid: string, studentEmail: st
 // Remove a student email from the classroom list
 export const removeStudentFromClassroom = async (teacherUid: string, studentEmail: string): Promise<{ success: boolean; message: string }> => {
   const classroomDocRef = doc(db, CLASSROOMS_COLLECTION, teacherUid);
-  const teacherUserDocRef = doc(db, USERS_COLLECTION, teacherUid); // Ref for teacher's usage data
+  const teacherUserDocRef = doc(db, USERS_COLLECTION, teacherUid);
 
   try {
-    // Remove from the classroom document
-    await updateDoc(classroomDocRef, {
+    const studentUid = await getUserIdByEmail(studentEmail);
+
+    // Use a batch write
+    const batch = writeBatch(db);
+
+    // Update classroom doc
+    batch.update(classroomDocRef, {
       students: arrayRemove(studentEmail),
       updatedAt: Timestamp.now()
     });
 
-    // Remove student usage data from the *teacher's* user document
-    // NOTE: This uses dot notation which might not directly remove a map field key.
-    // A more robust way might involve fetching the doc, removing the key in code, and setting the whole map back.
-    // However, for simplicity and common usage, we try this first. If it fails, manual deletion might be needed,
-    // or the usage data just becomes orphaned (less ideal).
-    const studentUid = await getUserIdByEmail(studentEmail); // Helper needed
-     if (studentUid) {
-        const studentUsagePath = `classroomUsage.students.${studentUid}`;
-        // Attempt to remove the specific student's map entry.
-        // Firestore's FieldValue.delete() is for deleting fields, not map keys directly via dot notation.
-        // We might need to fetch, modify, and update the whole 'students' map.
-        // For now, let's log and acknowledge this limitation.
-        console.warn(`Manual removal or update logic needed for ${studentUsagePath} in teacher's user document if direct dot notation update fails.`);
-        // Example of fetch-modify-update (more robust):
-        // const teacherDoc = await getDoc(teacherUserDocRef);
-        // if (teacherDoc.exists()) {
-        //     const currentClassroomUsage = teacherDoc.data().classroomUsage || {};
-        //     if (currentClassroomUsage.students && currentClassroomUsage.students[studentUid]) {
-        //         delete currentClassroomUsage.students[studentUid];
-        //         await updateDoc(teacherUserDocRef, { 'classroomUsage.students': currentClassroomUsage.students });
-        //         console.log(`Removed usage data for student ${studentUid} (${studentEmail}) under teacher ${teacherUid}`);
-        //     }
-        // }
+    if (studentUid) {
+      // Fetch teacher data to safely remove student entry from map
+      const teacherDoc = await getDoc(teacherUserDocRef);
+       if (teacherDoc.exists()) {
+           const currentClassroomUsage = teacherDoc.data().classroomUsage || { students: {} };
+           if (currentClassroomUsage.students && currentClassroomUsage.students[studentUid]) {
+               delete currentClassroomUsage.students[studentUid]; // Remove the student's key
+               // Update the entire students map back to Firestore
+               batch.update(teacherUserDocRef, { 'classroomUsage.students': currentClassroomUsage.students });
+               console.log(`Removed usage data for student ${studentUid} (${studentEmail}) under teacher ${teacherUid}`);
+           }
+       }
 
-        // Simpler approach (might leave orphaned data if student rejoins with same UID later):
-        // Set the field to null or delete(), depending on desired behavior.
-        // Setting to null might be safer if direct deletion isn't supported this way.
-         await updateDoc(teacherUserDocRef, {
-             [`${studentUsagePath}`]: null // Or potentially FieldValue.delete() if supported contextually
-         }).catch(err => console.error("Error trying to clear student usage data:", err));
+      // *** ADDED: Update the student's user document ***
+      const studentUserDocRef = doc(db, USERS_COLLECTION, studentUid);
+      batch.update(studentUserDocRef, {
+          memberOfClassroom: null // Or FieldValue.delete()
+          // Optionally reset subscription status if they have no other active plan
+          // subscription: 'free' // Be careful with this, might interfere with useAuth
+      });
+      // *** END ADDED ***
 
-
+      console.log(`Cleared memberOfClassroom for student ${studentUid} (${studentEmail}).`);
     } else {
-         console.warn(`Could not find UID for student email ${studentEmail}. Usage data not removed.`);
+        console.warn(`Could not find UID for student email ${studentEmail}. memberOfClassroom not cleared.`);
     }
 
+    await batch.commit();
 
     return { success: true, message: "Student removed successfully." };
   } catch (error) {
