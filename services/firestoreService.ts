@@ -340,16 +340,23 @@ export const checkAndDecrementCredits = async (
 
       const now = Date.now();
       const needsReset = new Date(lastReset).getUTCDate() !== new Date(now).getUTCDate();
-      const remaining = needsReset ? creditLimit - creditsToDeduct : Number(currentCredits) - creditsToDeduct;
+      
+      // CORRECTED CALCULATION:
+      const creditsBeforeDeduction = needsReset ? creditLimit : Number(currentCredits);
+      const remaining = creditsBeforeDeduction - creditsToDeduct;
 
       if (remaining < 0) {
+        // If even after a reset there aren't enough credits, throw error
         throw new Error("Not enough credits.");
       }
 
-      const newState: UsageData = { credits: remaining, lastReset: needsReset ? now : lastReset };
+      // Update lastReset time only if a reset actually happened
+      const newLastReset = needsReset ? now : lastReset;
+      const newState: UsageData = { credits: remaining, lastReset: newLastReset };
+
       // This call will now work because the function exists in this file.
       const updates = buildUpdateObject(usagePath, newState, userData);
-      
+
       transaction.update(effectiveUserRef, updates);
       success = true;
     });

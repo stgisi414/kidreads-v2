@@ -7,7 +7,7 @@ import {
   query, where, limit, getDocs, DocumentSnapshot, DocumentData, Timestamp
 } from "firebase/firestore";
 import { auth, db, payments } from '../firebase';
-import { UserData, SubscriptionStatus, UsageData, ClassroomData } from '../types';
+import { UserData, SubscriptionStatus, UsageData } from '../types';
 import { onCurrentUserSubscriptionUpdate } from '@invertase/firestore-stripe-payments';
 
 // Helper to determine credit count based on subscription type
@@ -84,8 +84,7 @@ export const useAuth = () => {
 
     let finalState: UserData = { ...baseAuthData };
 
-    // --- Base Layer: Apply data from user's own document ---
-    // This is the source of truth for current credit counts and preferences.
+    // Apply data from user's own document first
     if (userDataFromDoc.current) {
         finalState = {
             ...finalState,
@@ -93,69 +92,130 @@ export const useAuth = () => {
             displayName: userDataFromDoc.current.displayName ?? finalState.displayName,
             photoURL: userDataFromDoc.current.photoURL ?? finalState.photoURL,
             memberOfClassroom: userDataFromDoc.current.memberOfClassroom,
-            usage: userDataFromDoc.current.usage ?? finalState.usage, // CRITICAL: Prioritize userDoc usage
-            classroomUsage: userDataFromDoc.current.classroomUsage ?? finalState.classroomUsage, // CRITICAL: Prioritize userDoc classroomUsage
-         };
+            // Get potentially stale usage data from DB first
+            usage: userDataFromDoc.current.usage ?? finalState.usage,
+            classroomUsage: userDataFromDoc.current.classroomUsage ?? finalState.classroomUsage,
+            isAdmin: userDataFromDoc.current.isAdmin ?? false, // Make sure isAdmin is pulled
+            stripeRole: userDataFromDoc.current.stripeRole, // Pull stripeRole
+        };
     }
 
     // Apply Stripe Customer ID
     if (customerStripeId.current) {
-        finalState.stripeId = customerStripeId.current;
+      finalState.stripeId = customerStripeId.current;
     }
 
-    // --- Determine Final Status Based on Priority ---
-    let finalSubscription: SubscriptionStatus = userDataFromDoc.current?.subscription || baseAuthData.subscription;
+    // Determine Final Status Based on Priority
+    let finalSubscription: SubscriptionStatus = finalState.subscription; // Start with value from userDoc/base
     let finalUsage: UserData['usage'] = finalState.usage;
     let finalClassroomUsage: UserData['classroomUsage'] = finalState.classroomUsage;
-    let finalStripeRole: string | undefined = userDataFromDoc.current?.stripeRole;
-    let finalIsAdmin = userDataFromDoc.current?.isAdmin || false;
+    let finalStripeRole: string | undefined = finalState.stripeRole;
+    let finalIsAdmin = finalState.isAdmin;
 
-    // Priority 1: Admin
+
+    // Priority 1: Admin check (Overrides everything)
     if (finalIsAdmin) {
-        console.log("   updateUserState: Priority 1: Admin detected.");
-        finalSubscription = 'admin';
-        finalUsage = { credits: -1, lastReset: Date.now() };
-        finalClassroomUsage = undefined;
-        finalStripeRole = undefined;
+      console.log("   updateUserState: Priority 1: Admin detected.");
+      finalSubscription = 'admin';
+      finalUsage = { credits: -1, lastReset: Date.now() }; // Unlimited
+      finalClassroomUsage = undefined; // Admins don't use classroom usage directly
+      finalStripeRole = undefined;
     }
-    // Priority 2: Confirmed Student
+    // Priority 2: Confirmed Student check
     else if (studentClassroomInfo.current?.isStudent) {
-        console.log("%c   updateUserState: Priority 2: Confirmed Student detected.", "color: green; font-weight: bold;");
-        finalSubscription = 'classroom';
-        finalUsage = studentClassroomInfo.current.usage || { credits: getCreditsForSubscription('classroom', false), lastReset: 0 };
-        finalClassroomUsage = undefined;
-        finalStripeRole = 'classroom';
-        finalIsAdmin = false;
+      console.log("%c   updateUserState: Priority 2: Confirmed Student detected.", "color: green; font-weight: bold;");
+      finalSubscription = 'classroom';
+      // Use student usage data determined during the check
+      finalUsage = studentClassroomInfo.current.usage || { credits: getCreditsForSubscription('classroom', false), lastReset: 0 };
+      finalClassroomUsage = undefined; // Students don't have teacher/classroom data on their own doc
+      finalStripeRole = 'classroom'; // Reflects their status via classroom membership
     }
-    // Priority 3: Stripe Subscriber (Teacher or Individual)
-    else if (stripeSubDetails.current) {
-        console.log("   updateUserState: Priority 3: Stripe details applied.");
-        finalSubscription = stripeSubDetails.current.status;
-        finalStripeRole = stripeSubDetails.current.role;
-        // =========================================================================================
-        // === THE FIX: Do NOT overwrite existing usage data with undefined from the Stripe listener. ===
-        // The userDoc is the source of truth for the current credit COUNT. We only take the
-        // Stripe value if it's explicitly provided (which it isn't in your current logic).
-        finalUsage = stripeSubDetails.current.usage ?? finalUsage;
-        finalClassroomUsage = stripeSubDetails.current.classroomUsage ?? finalClassroomUsage;
-        // =========================================================================================
+    // Priority 3: Stripe Subscriber (Teacher or Individual), ONLY if not already overridden by Admin/Student
+    else if (stripeSubDetails.current && stripeSubDetails.current.status !== 'free') {
+      console.log("   updateUserState: Priority 3: Stripe details applied.");
+      // Use the status determined from the active Stripe subscription
+      finalSubscription = stripeSubDetails.current.status;
+      finalStripeRole = stripeSubDetails.current.role;
+
+      // If they just became a teacher via Stripe, ensure classroomUsage is initialized
+      if (finalSubscription === 'classroom' && !finalClassroomUsage?.teacher) {
+           console.log("   updateUserState: Initializing teacher usage based on new Stripe role.");
+           finalClassroomUsage = {
+               teacher: { credits: getCreditsForSubscription('classroom', true), lastReset: 0 },
+               students: finalClassroomUsage?.students || {} // Keep existing students if any
+           };
+           finalUsage = undefined; // Teachers don't use individual usage
+      }
+      // If they just became Lite/Max via Stripe, ensure individual usage is initialized
+      else if ( (finalSubscription === 'lite' || finalSubscription === 'max') && !finalUsage) {
+          console.log("   updateUserState: Initializing individual usage based on new Stripe role.");
+          finalUsage = { credits: getCreditsForSubscription(finalSubscription), lastReset: 0 };
+          finalClassroomUsage = undefined; // Clear classroom usage if switching to individual
+      }
     }
-    // Priority 4: Fallback to defaults
-    else {
-         console.log("   updateUserState: Priority 4: Using User Doc / Base Defaults.");
+     // Priority 4: Fallback to Free / Defaults (if no admin, student, or active Stripe sub)
+    else if (finalSubscription !== 'free') { // Only log if it wasn't already free
+        console.log("   updateUserState: Priority 4: No active Admin/Student/Stripe status, falling back to Free.");
+        finalSubscription = 'free';
+        finalStripeRole = undefined;
+        finalUsage = finalUsage || defaultUsage; // Ensure usage exists
+        finalClassroomUsage = undefined; // Clear classroom usage
     }
 
-    // Apply the final determined state
+    // Apply the finally determined state
     finalState.isAdmin = finalIsAdmin;
     finalState.subscription = finalSubscription;
-    finalState.usage = finalUsage;
-    finalState.classroomUsage = finalClassroomUsage;
-    finalState.stripeRole = finalStripeRole;
+    finalState.stripeRole = finalStripeRole; // Store the role from Stripe/logic
 
-    console.log("%c   updateUserState: Final calculated state:", "color: blue; font-weight: bold;", JSON.stringify(finalState, null, 2));
-    setUser(finalState);
+    // --- LOGIC TO CALCULATE DISPLAY CREDITS ---
+    const isTeacher = finalSubscription === 'classroom' && !!finalClassroomUsage?.teacher;
+    const relevantUsage = isTeacher
+      ? finalClassroomUsage?.teacher
+      : finalUsage; // Student usage is already placed in finalUsage by Priority 2
 
-    // Stop loading only after the initial fetch cycle is complete
+    const creditsFromDb = relevantUsage?.credits ?? defaultUsage.credits;
+    const lastResetTimestamp = relevantUsage?.lastReset || 0;
+    const creditLimit = getCreditsForSubscription(finalSubscription, isTeacher);
+
+    const hasResetTimePassed = () => {
+        if (finalIsAdmin || creditLimit === -1) return false;
+        if (lastResetTimestamp === 0 && creditsFromDb < creditLimit) return true; // Special case: never reset but not full? Show full.
+
+        const lastResetDate = new Date(lastResetTimestamp);
+        const now = new Date();
+        // Check if the UTC day, month, or year is different
+        return lastResetDate.getUTCDate() !== now.getUTCDate() ||
+               lastResetDate.getUTCMonth() !== now.getUTCMonth() ||
+               lastResetDate.getUTCFullYear() !== now.getUTCFullYear();
+    };
+
+    // Calculate the credits to *display*
+    const displayCredits = hasResetTimePassed() ? creditLimit : creditsFromDb;
+
+    // Store both the DB value and the calculated display value in the final state
+    // We modify the 'usage' or 'classroomUsage.teacher' object directly for simplicity here.
+    if (isTeacher && finalClassroomUsage?.teacher) {
+        finalState.classroomUsage = {
+            ...finalClassroomUsage,
+            teacher: { ...finalClassroomUsage.teacher, credits: displayCredits } // Store display value here
+        };
+         finalState.usage = undefined; // Ensure individual usage is cleared for teachers
+        console.log(`   updateUserState: Calculated teacher display credits: ${displayCredits}`);
+    } else if (finalUsage) { // Covers free, lite, max, student, potentially admin before override
+        finalState.usage = { ...finalUsage, credits: displayCredits }; // Store display value here
+         finalState.classroomUsage = undefined; // Ensure classroomUsage is cleared for non-teachers
+        console.log(`   updateUserState: Calculated individual/student display credits: ${displayCredits}`);
+    }
+     // For admin, ensure credits remain -1 even after display calc attempt
+    if (finalIsAdmin) {
+        finalState.usage = { credits: -1, lastReset: Date.now() };
+    }
+    // --- END LOGIC TO CALCULATE DISPLAY CREDITS ---
+
+    console.log("%c   updateUserState: Final calculated state (with display credits):", "color: blue; font-weight: bold;", JSON.stringify(finalState, null, 2));
+    setUser(finalState); // Set the state with the potentially overridden 'credits' value
+
+    // Stop loading
     if (initialFetchComplete.current && loading) {
        console.log("   updateUserState: Initial fetch complete, setting loading to false.");
        setLoading(false);

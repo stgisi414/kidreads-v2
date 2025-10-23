@@ -19,7 +19,7 @@ const TermsOfService: React.FC = () => {
 
         <h2 className="text-2xl font-semibold mt-6 mb-4">2. Subscriptions and Credits</h2>
         <p className="mb-4">
-          The Service offers a free tier and paid subscription plans ("KidReads Lite", "KidReads Max").
+          The Service offers a free tier and paid subscription plans ("KidReads Lite", "KidReads Max", "Kidreads Classroom").
         </p>
         <ul className="list-disc list-inside mb-4 space-y-2">
           <li>
@@ -37,6 +37,8 @@ const TermsOfService: React.FC = () => {
               <li>Free Tier: 5 daily credits.</li>
               <li>KidReads Lite: 10 daily credits.</li>
               <li>KidReads Max: 25 daily credits.</li>
+              <li>KidReads Student: 10 daily credits.</li>
+              <li>KidReads Teacher: 30 daily credits.</li>
             </ul>
           </li>
           <li>

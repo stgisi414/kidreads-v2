@@ -12,6 +12,7 @@ import * as Tone from 'tone';
 import ErrorBoundary from './ErrorBoundary';
 import UserProfile from './UserProfile';
 import BrowserErrorModal from './BrowserErrorModal'; // Adjust path if needed
+import { defaultUsage } from '../hooks/useAuth';
 
 type HomeScreenProps = {
   onCreateStory: (topic: string, storyLength: number) => void;
@@ -368,28 +369,28 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
 
   const isListening = recordingFor === 'topic';
 
-  // --- ADDED: Credit cost and display logic ---
   const currentCost = creditCost[storyLength];
   const getCreditDisplay = () => {
-    // Add checks for user and user.usage
-    if (!user || !user.usage) {
-      return null; // Or return a loading state like '...'
+    if (!user) {
+      return null; // Not logged in
     }
-    // Now it's safe to destructure
-    const { credits } = user.usage; //
-    const isAdmin = user.isAdmin || user.subscription === 'admin'; //
 
-    if (isAdmin || credits === -1) {
+    const isAdmin = user.isAdmin || user.subscription === 'admin';
+    if (isAdmin) {
        return <span className="font-bold text-red-600">Unlimited</span>;
     }
 
+    // Determine relevant usage data
+    const isClassroomTeacher = user.subscription === 'classroom' && !!user.classroomUsage?.teacher;
+    const usageData = isClassroomTeacher ? user.classroomUsage?.teacher : user.usage;
+    const displayCredits = usageData?.credits ?? defaultUsage.credits; // Use the value from useAuth
+
     return (
-      <span className={`font-bold ${credits < currentCost ? 'text-red-500' : 'text-blue-600'}`}>
-        {credits}
+      <span className={`font-bold ${displayCredits < currentCost ? 'text-red-500' : 'text-blue-600'}`}>
+        {displayCredits}
       </span>
     );
   };
-  // --- END ADDED ---
 
   return (
     <>
