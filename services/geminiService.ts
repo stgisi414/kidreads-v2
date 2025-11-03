@@ -37,6 +37,8 @@ const getTimedTranscriptCallable = httpsCallable(functions, 'getTimedTranscript'
 const checkWordMatchCallable = httpsCallable(functions, 'checkWordMatch');
 const generateStoryIdeasCallable = httpsCallable(functions, 'generateStoryIdeas');
 const generateLocationStoryIdeasCallable = httpsCallable(functions, 'generateLocationStoryIdeas');
+const generateBookReportCallable = httpsCallable(functions, 'generateBookReport');
+const editBookReportCallable = httpsCallable(functions, 'editBookReport');
 
 // Define types for the function return data
 type StoryResponse = { title: string; text: string; illustration: string; quiz: any[]; };
@@ -47,6 +49,8 @@ type WordMatchResponse = { isMatch: boolean; };
 type PhonemeResponse = { phonemes: string[]; definition: string | null; };
 type StoryIdeasResponse = { ideas: string[] };
 type LocationStoryIdeasResponse = { ideas: string[] };
+type BookReportResponse = { report: string; };
+type EditedBookReportResponse = { editedReport: string; };
 
 // Export new functions that use the callable references
 export const generateStoryAndIllustration = async (topic: string, storyLength: number): Promise<StoryResponse> => {
@@ -111,4 +115,24 @@ export const getPlaceAutocomplete = async (input: string): Promise<PlaceAutocomp
     const result = await getPlaceAutocompleteCallable({ input });
     console.log('Raw autocomplete result from callable:', result);
     return result.data as PlaceAutocompleteResponse;
+};
+
+export const generateBookReport = async (storyText: string): Promise<BookReportResponse> => {
+  try {
+    const result = await generateBookReportCallable({ storyText });
+    return result.data as BookReportResponse;
+  } catch (error) {
+    console.error("Error generating book report:", error);
+    throw new Error("Failed to generate book report. Please try again.");
+  }
+};
+
+export const editBookReport = async (storyText: string, transcribedText: string): Promise<EditedBookReportResponse> => {
+  try {
+    const result = await editBookReportCallable({ storyText, transcribedText });
+    return result.data as EditedBookReportResponse;
+  } catch (error) {
+    console.error("Error editing book report:", error);
+    throw new Error("Failed to edit book report. Please try again.");
+  }
 };

@@ -958,3 +958,176 @@ export const onSubscriptionUpdate = onDocumentWritten(
     */
   }
 );
+
+const getBookReportSystemInstruction = (): string => {
+  return `You are a helpful assistant for a children's reading app.
+    Based on the full text of a children's story, generate a simple book report suitable for a 1st or 2nd grader.
+    The report should be 3-4 sentences long and cover:
+    1. The main characters.
+    2. The setting.
+    3. A brief summary of what happened.
+
+    Your response MUST be a valid JSON object with a single key "report" which is a string.
+
+    Example:
+    {
+      "report": "This story is about a bear named Barnaby and a bee named Buzz. They were in a sunny forest looking for honey. Barnaby and Buzz worked together to find the honey and shared it with their friends."
+    }`;
+};
+
+const getEditReportSystemInstruction = (): string => {
+  return `You are a helpful and encouraging editor for a young child.
+    A child has recorded their own book report, and it has been transcribed.
+    Your task is to edit the transcription to correct spelling, fix grammar, and improve clarity, while
+    **preserving the child's original voice, ideas, and personality**.
+    Do not add new facts from the story. Just polish the child's own words.
+    The report is about the following story:
+    --- STORY ---
+    {STORY_TEXT}
+    --- END STORY ---
+
+    Your response MUST be a valid JSON object with a single key "editedReport" which is a string.
+
+    Example Child Transcription: "i liked the story it was about a bear and a bee and they was looking for honey. and they found it"
+    Example JSON response:
+    {
+      "editedReport": "I liked the story! It was about a bear and a bee, and they were looking for honey. In the end, they found it!"
+    }`;
+};
+
+export const generateBookReport = onCall(
+  {
+    secrets: ["API_KEY"],
+    maxInstances: 10,
+    region: "us-central1",
+  },
+  async (request) => {
+    const { storyText } = request.data;
+    if (!storyText) {
+      throw new HttpsError("invalid-argument", "Story text is required.");
+    }
+
+    const GEMINI_API_KEY = process.env.API_KEY;
+    if (!GEMINI_API_KEY) {
+      logger.error("API_KEY not configured in environment.");
+      throw new HttpsError(
+        "internal",
+        "Internal Server Error: API key not found."
+      );
+    }
+
+    try {
+      const modelUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
+      const systemInstruction = getBookReportSystemInstruction();
+      const apiRequest = {
+        contents: [{ parts: [{ text: `Story: ${storyText}` }] }],
+        system_instruction: { parts: [{ text: systemInstruction }] },
+        generationConfig: {
+          temperature: 0.5,
+          maxOutputTokens: 2048,
+          responseMimeType: "application/json",
+        },
+      };
+
+      const apiResponse = await fetch(modelUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(apiRequest),
+      });
+
+      if (!apiResponse.ok) {
+        const errorText = await apiResponse.text();
+        logger.error("Error from Gemini API:", errorText);
+        throw new HttpsError(
+          "internal",
+          `Gemini API failed with status ${apiResponse.status}`
+        );
+      }
+
+      const data = await apiResponse.json();
+      const responseJsonText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!responseJsonText) {
+        throw new HttpsError("internal", "Could not generate book report.");
+      }
+
+      const responseObject = JSON.parse(responseJsonText);
+      return responseObject; // { "report": "..." }
+    } catch (error) {
+      logger.error("Error in generateBookReport:", error);
+      throw new HttpsError("internal", "Could not generate book report.");
+    }
+  }
+);
+
+export const editBookReport = onCall(
+  {
+    secrets: ["API_KEY"],
+    maxInstances: 10,
+    region: "us-central1",
+  },
+  async (request) => {
+    const { storyText, transcribedText } = request.data;
+    if (!storyText || !transcribedText) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Story text and transcribed text are required."
+      );
+    }
+
+    const GEMINI_API_KEY = process.env.API_KEY;
+    if (!GEMINI_API_KEY) {
+      logger.error("API_KEY not configured in environment.");
+      throw new HttpsError(
+        "internal",
+        "Internal Server Error: API key not found."
+      );
+    }
+
+    try {
+      const modelUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
+      let systemInstruction = getEditReportSystemInstruction();
+      systemInstruction = systemInstruction.replace("{STORY_TEXT}", storyText);
+
+      const apiRequest = {
+        contents: [
+          { parts: [{ text: `Child's Transcription: ${transcribedText}` }] },
+        ],
+        system_instruction: { parts: [{ text: systemInstruction }] },
+        generationConfig: {
+          temperature: 0.3,
+          maxOutputTokens: 2048,
+          responseMimeType: "application/json",
+        },
+      };
+
+      const apiResponse = await fetch(modelUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(apiRequest),
+      });
+
+      if (!apiResponse.ok) {
+        const errorText = await apiResponse.text();
+        logger.error("Error from Gemini API:", errorText);
+        throw new HttpsError(
+          "internal",
+          `Gemini API failed with status ${apiResponse.status}`
+        );
+      }
+
+      const data = await apiResponse.json();
+      const responseJsonText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+      if (!responseJsonText) {
+        throw new HttpsError("internal", "Could not edit book report.");
+      }
+
+      const responseObject = JSON.parse(responseJsonText);
+      return responseObject; // { "editedReport": "..." }
+    } catch (error) {
+      logger.error("Error in editBookReport:", error);
+      throw new HttpsError("internal", "Could not edit book report.");
+    }
+  }
+);

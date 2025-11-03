@@ -17,6 +17,11 @@ export type QuizResult = {
   answers: { question: string; selected: string; correct: string }[];
 };
 
+export type BookReport = {
+  text: string;
+  source: 'transcribed' | 'generated' | 'edited';
+};
+
 export type Story = {
   id: number;
   title: string;
@@ -27,6 +32,7 @@ export type Story = {
   phonemes: Record<string, string[]>;
   quiz: QuizQuestion[];
   quizResults?: QuizResult;
+  bookReport?: BookReport;
 };
 
 export type SubscriptionStatus = "free" | "lite" | "max" | "inactive" | "admin" | "classroom";

@@ -21,8 +21,10 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, onQuizComplet
   const [userAnswers, setUserAnswers] = useState<QuizResult['answers']>([]);
   const [jiggle, setJiggle] = useState(false);
 
-  const { speak, cancel, isSpeaking: isQuizSpeaking } = useTextToSpeech();
-  const isSpeaking = isParentSpeaking || isQuizSpeaking;
+  // --- FIX 1: Get isLoading and create a combined 'isBusy' state ---
+  const { speak, cancel, isSpeaking: isQuizSpeaking, isLoading: isQuizLoading } = useTextToSpeech();
+  const isBusy = isParentSpeaking || isQuizSpeaking || isQuizLoading;
+  // --- END FIX 1 ---
 
   useEffect(() => {
     return () => {
@@ -34,11 +36,19 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, onQuizComplet
     cancel();
     const correct = selectedAnswer === questions[currentQuestionIndex].answer;
     setIsCorrect(correct);
+
+    // --- FIX 2: Check if it's the last question *before* speaking ---
+    const isLastQuestion = currentQuestionIndex === questions.length - 1;
+    // --- END FIX 2 ---
+
     if (correct) {
       setScore(s => s + 1);
       speak("That's right!", undefined, voice, false, true, 1.00);
     } else {
-      speak("Not quite, let's try the next one.", undefined, voice, false, true, 1.00);
+      // --- FIX 2 (continued): Use the conditional message ---
+      const message = isLastQuestion ? "Not quite." : "Not quite, let's try the next one.";
+      speak(message, undefined, voice, false, true, 1.00);
+      // --- END FIX 2 ---
     }
 
     setUserAnswers(prev => [...prev, {
@@ -76,7 +86,7 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, onQuizComplet
   };
 
    const handleSelectAnswer = (option: string) => {
-    if (isCorrect !== null) return;
+    if (isCorrect !== null || isBusy) return; // <-- FIX 1: Use isBusy
     setSelectedAnswer(option);
     setJiggle(true);
     setTimeout(() => setJiggle(false), 300);
@@ -94,7 +104,8 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, onQuizComplet
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-2xl w-full relative animate-fade-in-up">
-        <button onClick={onClose} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600">
+        {/* --- FIX 1: Disable button when busy --- */}
+        <button onClick={onClose} disabled={isBusy} className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 disabled:opacity-50">
           <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
         </button>
 
@@ -107,15 +118,17 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, onQuizComplet
             </h2>
             <p className="text-2xl text-slate-700 mb-6">Your score: <span className="font-bold text-green-500">{score}</span> / {questions.length}</p>
             <div className="flex justify-center gap-4">
-              <button onClick={handleRestart} className="flex items-center gap-2 px-6 py-3 bg-blue-500 text-white rounded-full font-bold text-lg hover:bg-blue-600 transition-transform hover:scale-105 shadow-lg"><Icon name="retry" className="w-6 h-6"/>Restart Quiz</button>
-              <button onClick={onClose} className="flex items-center gap-2 px-6 py-3 bg-slate-200 text-slate-700 rounded-full font-bold text-lg hover:bg-slate-300 transition"><Icon name="close" className="w-6 h-6" />Close</button>
+              {/* --- FIX 1: Disable buttons when busy --- */}
+              <button onClick={handleRestart} disabled={isBusy} className="flex items-center gap-2 px-6 py-3 bg-blue-500 text-white rounded-full font-bold text-lg hover:bg-blue-600 transition-transform hover:scale-105 shadow-lg disabled:opacity-50"><Icon name="retry" className="w-6 h-6"/>Restart Quiz</button>
+              <button onClick={onClose} disabled={isBusy} className="flex items-center gap-2 px-6 py-3 bg-slate-200 text-slate-700 rounded-full font-bold text-lg hover:bg-slate-300 transition disabled:opacity-50"><Icon name="close" className="w-6 h-6" />Close</button>
             </div>
           </div>
         ) : (
           <div>
             <div className="flex items-center justify-center gap-4 mb-6">
               <h3 className="text-2xl font-bold text-slate-800 text-center">{currentQuestion.question}</h3>
-              <button onClick={handleReadQuestion} disabled={isSpeaking} className="text-blue-500 hover:text-blue-700 disabled:text-gray-400">
+              {/* --- FIX 1: Disable button when busy --- */}
+              <button onClick={handleReadQuestion} disabled={isBusy} className="text-blue-500 hover:text-blue-700 disabled:text-gray-400">
                 <Icon name="speaker" className="w-8 h-8"/>
               </button>
             </div>
@@ -129,13 +142,14 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, onQuizComplet
                   <button
                     key={option}
                     onClick={() => handleSelectAnswer(option)}
-                    disabled={isCorrect !== null || isSpeaking}
+                    // --- FIX 1: Disable button when busy ---
+                    disabled={isCorrect !== null || isBusy}
                     className={`p-4 rounded-xl text-lg font-semibold text-left transition-all duration-300 border-4
                       ${isTheCorrectAnswer ? `bg-green-100 border-green-400 text-green-800 animate-tada` : ''}
                       ${isTheIncorrectAnswer ? `bg-red-100 border-red-400 text-red-800 animate-shake` : ''}
                       ${!isSelected && isCorrect === null ? 'bg-slate-100 border-slate-200 hover:bg-blue-100 hover:border-blue-300' : ''}
                       ${isSelected && isCorrect === null ? `bg-blue-200 border-blue-400 ${jiggle ? 'animate-jiggle' : ''}` : ''}
-                      ${isCorrect !== null ? 'cursor-not-allowed' : 'cursor-pointer'}
+                      ${isCorrect !== null || isBusy ? 'cursor-not-allowed' : 'cursor-pointer'}
                     `}
                   >
                     {option}
@@ -145,7 +159,8 @@ const QuizModal: React.FC<QuizModalProps> = ({ questions, onClose, onQuizComplet
             </div>
             <button
               onClick={handleAnswerSubmit}
-              disabled={!selectedAnswer || isCorrect !== null || isSpeaking}
+              // --- FIX 1: Disable button when busy ---
+              disabled={!selectedAnswer || isCorrect !== null || isBusy}
               className="w-full flex items-center justify-center gap-2 px-6 py-4 bg-blue-500 text-white rounded-full font-bold text-xl hover:bg-blue-600 transition-transform hover:scale-105 shadow-lg disabled:bg-gray-400 disabled:cursor-not-allowed disabled:transform-none"
             >
               <Icon name="check" className="w-8 h-8" />

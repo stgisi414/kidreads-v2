@@ -124,6 +124,17 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
     }
   }, [user]);
 
+  /**
+   * Updates a single story in the main savedStories state.
+   */
+  const handleUpdateSavedStory = (updatedStory: Story) => {
+    setSavedStories(prevStories =>
+      prevStories.map(story =>
+        story.id === updatedStory.id ? updatedStory : story
+      )
+    );
+  };
+
   const handleVoiceSelection = (newVoice: 'Leda' | 'Orus') => {
     if (newVoice === voice || isSpeaking) {
       return;
@@ -432,6 +443,7 @@ const HomeScreen: React.FC<HomeScreenProps> = ({
                voice={voice}
                speakingRate={speakingRate}
                user={user}
+               onUpdateStory={handleUpdateSavedStory}
              />
            </ErrorBoundary>
         )}
